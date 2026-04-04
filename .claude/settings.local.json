@@ -1,0 +1,24 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(cp .env.local /tmp/.env.local.backup)",
+      "Bash(npx create-next-app@14 . --typescript --tailwind --eslint --app --src-dir=false --import-alias=\"@/*\" --no-git --yes)",
+      "Bash(cp -r .claude /tmp/.claude.backup)",
+      "Read(//tmp/**)",
+      "Read(//private/tmp/**)",
+      "Bash(npx create-next-app@14 talentagent-init --typescript --tailwind --eslint --app --src-dir=false --import-alias=\"@/*\" --no-git --yes)",
+      "Bash(npx create-next-app@14 talentagent-init --typescript --tailwind --eslint --app --no-src-dir --import-alias=\"@/*\" --no-git)",
+      "Bash(cp:*)",
+      "Bash(npm install:*)",
+      "Bash(npm run:*)",
+      "Bash(ln -s ../next/dist/bin/next /Users/jaredjacobovitz/Desktop/talentagent/node_modules/.bin/next)",
+      "Bash(curl -s -o /dev/null -w \"%{http_code}\" http://localhost:3000/)",
+      "Bash(pkill -f \"next dev\")",
+      "Bash(ls:*)",
+      "Bash(curl:*)",
+      "Bash(node:*)",
+      "Bash(npx tsx:*)",
+      "Bash(npx tsc:*)"
+    ]
+  }
+}

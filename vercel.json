@@ -1,0 +1,16 @@
+{
+  "crons": [
+    {
+      "path": "/api/crawler/run",
+      "schedule": "0 */6 * * *"
+    },
+    {
+      "path": "/api/match/run",
+      "schedule": "0 */2 * * *"
+    },
+    {
+      "path": "/api/github/sync",
+      "schedule": "0 0 * * 0"
+    }
+  ]
+}

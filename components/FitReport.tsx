@@ -78,6 +78,13 @@ export default function FitReport({ assessment, assessmentId, existingRating }: 
   const [feedback, setFeedback] = useState('')
   const [savingFeedback, setSavingFeedback] = useState(false)
 
+  // Support both canonical field names and legacy/seed field names
+  const a = assessment as any
+  const overallScore: number = assessment.overall_fit_score ?? a.overall ?? 0
+  const technicalScore: number = assessment.technical_fit_score ?? a.technical ?? 0
+  const roleScore: number = assessment.role_fit_score ?? a.role ?? 0
+  const screenQuestions: string[] = assessment.questions_for_human_screen ?? a.screen_questions ?? []
+
   const rec = recommendationConfig[assessment.recommendation] ?? recommendationConfig.maybe
 
   const saveFeedback = async () => {
@@ -104,8 +111,8 @@ export default function FitReport({ assessment, assessmentId, existingRating }: 
         <div className="flex items-start justify-between flex-wrap gap-4">
           <div>
             <p className="text-sm text-slate-500 mb-1">Overall Fit Score</p>
-            <div className={`text-6xl font-bold ${ScoreColor(assessment.overall_fit_score)}`}>
-              {assessment.overall_fit_score}
+            <div className={`text-6xl font-bold ${ScoreColor(overallScore)}`}>
+              {overallScore}
             </div>
             <p className="text-slate-400 text-sm mt-1">out of 100</p>
           </div>
@@ -128,35 +135,41 @@ export default function FitReport({ assessment, assessmentId, existingRating }: 
           <div>
             <div className="flex justify-between items-center mb-1.5">
               <span className="text-sm text-slate-700">Technical Fit</span>
-              <span className={`text-sm font-semibold ${ScoreColor(assessment.technical_fit_score)}`}>
-                {assessment.technical_fit_score}
+              <span className={`text-sm font-semibold ${ScoreColor(technicalScore)}`}>
+                {technicalScore}
               </span>
             </div>
-            <ProgressBar value={assessment.technical_fit_score} color={ScoreBg(assessment.technical_fit_score)} />
+            <ProgressBar value={technicalScore} color={ScoreBg(technicalScore)} />
           </div>
           <div>
             <div className="flex justify-between items-center mb-1.5">
               <span className="text-sm text-slate-700">Role Fit</span>
-              <span className={`text-sm font-semibold ${ScoreColor(assessment.role_fit_score)}`}>
-                {assessment.role_fit_score}
+              <span className={`text-sm font-semibold ${ScoreColor(roleScore)}`}>
+                {roleScore}
               </span>
             </div>
-            <ProgressBar value={assessment.role_fit_score} color={ScoreBg(assessment.role_fit_score)} />
+            <ProgressBar value={roleScore} color={ScoreBg(roleScore)} />
           </div>
         </div>
 
         {/* Compensation + Visa */}
-        <div className="mt-5 pt-4 border-t border-slate-100 flex gap-6 flex-wrap">
-          <div className="flex items-center gap-2">
-            <span className={`text-sm font-medium ${assessment.compensation_alignment.aligned ? 'text-[#10B981]' : 'text-[#EF4444]'}`}>
-              {assessment.compensation_alignment.aligned ? '✓' : '✗'} Comp Alignment
-            </span>
-            <span className="text-slate-400 text-sm">— {assessment.compensation_alignment.notes}</span>
+        {(assessment.compensation_alignment || assessment.visa_flag) && (
+          <div className="mt-5 pt-4 border-t border-slate-100 flex gap-6 flex-wrap">
+            {assessment.compensation_alignment && (
+              <div className="flex items-center gap-2">
+                <span className={`text-sm font-medium ${assessment.compensation_alignment.aligned ? 'text-[#10B981]' : 'text-[#EF4444]'}`}>
+                  {assessment.compensation_alignment.aligned ? '✓' : '✗'} Comp Alignment
+                </span>
+                {assessment.compensation_alignment.notes && (
+                  <span className="text-slate-400 text-sm">— {assessment.compensation_alignment.notes}</span>
+                )}
+              </div>
+            )}
+            {assessment.visa_flag && (
+              <span className="text-sm text-[#F59E0B] font-medium">⚠ Visa may be required</span>
+            )}
           </div>
-          {assessment.visa_flag && (
-            <span className="text-sm text-[#F59E0B] font-medium">⚠ Visa may be required</span>
-          )}
-        </div>
+        )}
       </div>
 
       {/* Requirements */}
@@ -165,13 +178,16 @@ export default function FitReport({ assessment, assessmentId, existingRating }: 
           <h2 className="font-semibold text-[#0F172A] mb-5">Requirement Analysis</h2>
           <div className="space-y-4">
             {assessment.requirements.map((req, i) => {
-              const v = verdictConfig[req.verdict] ?? verdictConfig.partial
+              const verdict = req.verdict ?? (req as any).status
+              const v = verdictConfig[verdict] ?? verdictConfig.partial
               return (
                 <div key={i} className="border border-slate-100 rounded-lg p-4">
                   <div className="flex items-start justify-between gap-3 mb-2">
                     <span className="text-sm font-medium text-slate-700">{req.requirement}</span>
                     <div className="flex items-center gap-2 shrink-0">
-                      <span className="text-xs text-slate-400 capitalize">{req.confidence} confidence</span>
+                      {req.confidence && (
+                        <span className="text-xs text-slate-400 capitalize">{req.confidence} confidence</span>
+                      )}
                       <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${v.bg} ${v.text}`}>
                         {v.label}
                       </span>
@@ -245,11 +261,11 @@ export default function FitReport({ assessment, assessmentId, existingRating }: 
       </div>
 
       {/* Questions for screen */}
-      {assessment.questions_for_human_screen?.length > 0 && (
+      {screenQuestions.length > 0 && (
         <div className="bg-white rounded-xl shadow-sm border border-slate-100 p-6">
           <h2 className="font-semibold text-[#0F172A] mb-4">Questions for Human Screen</h2>
           <ol className="space-y-2">
-            {assessment.questions_for_human_screen.map((q, i) => (
+            {screenQuestions.map((q, i) => (
               <li key={i} className="flex gap-3 text-sm text-slate-700">
                 <span className="text-[#6366F1] font-semibold shrink-0">{i + 1}.</span>
                 {q}

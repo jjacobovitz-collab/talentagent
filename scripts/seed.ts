@@ -513,7 +513,7 @@ function buildFitReport(tier: Tier, idx: number, spec: typeof AGENT_SPECS[0]) {
         ? `Tangential ${skill} exposure only`
         : `No evidence of ${skill} in GitHub or profile`
     }
-    return { requirement: skill, status, evidence }
+    return { requirement: skill, verdict: status, evidence, confidence: tier === 'strong' ? 'high' : tier === 'medium' ? 'medium' : 'low', notes: '' }
   })
 
   const greenFlags = tier === 'strong' ? [
@@ -551,13 +551,28 @@ function buildFitReport(tier: Tier, idx: number, spec: typeof AGENT_SPECS[0]) {
     `How have you handled the transition from a large company to a smaller team?`,
   ] : []
 
+  const visaRequired = tier === 'poor' && idx % 5 === 3
   return {
-    ...scores,
+    overall_fit_score: scores.overall,
+    technical_fit_score: scores.technical,
+    role_fit_score: scores.role,
+    github_evidence_score: scores.github,
+    recommendation: scores.recommendation,
+    recommendation_summary: scores.recommendation_summary,
     requirements,
     green_flags: greenFlags,
-    yellow_flags: yellowFlags,
-    red_flags: redFlags,
-    screen_questions: screenQuestions,
+    yellow_flags: yellowFlags.map((f: any) => ({ ...f, suggested_question: f.flag ? `Can you walk me through your experience with ${f.flag.toLowerCase()}?` : undefined })),
+    red_flags: redFlags.map((f: any, ri: number) => ({
+      flag: f.flag,
+      severity: tier === 'poor' ? (ri === 0 ? 'dealbreaker' : 'significant') : 'minor',
+      reasoning: f.flag,
+    })),
+    compensation_alignment: {
+      aligned: tier === 'strong' || (tier === 'medium' && idx % 5 !== 0),
+      notes: tier === 'strong' ? 'Within band' : tier === 'medium' && idx % 5 === 0 ? 'Expectations slightly above band max' : 'Expectations well above band',
+    },
+    visa_flag: visaRequired,
+    questions_for_human_screen: screenQuestions,
   }
 }
 

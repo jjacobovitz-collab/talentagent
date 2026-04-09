@@ -29,6 +29,10 @@ interface Match {
     timeline_analysis: any[]
     questions_to_ask: string[]
   } | null
+  nudge?: {
+    message: string
+    created_at: string
+  } | null
 }
 
 const COLUMNS = [
@@ -89,7 +93,11 @@ export default function MatchQueueClient({ matches }: { matches: Match[]; recrui
   return (
     <div className="grid grid-cols-4 gap-4 min-h-96">
       {COLUMNS.map(col => {
-        const colMatches = localMatches.filter(m => getColumn(m) === col.key)
+        const colMatchesRaw = localMatches.filter(m => getColumn(m) === col.key)
+        // Nudged matches surface first in the pending column
+        const colMatches = col.key === 'pending'
+          ? [...colMatchesRaw].sort((a, b) => (b.nudge ? 1 : 0) - (a.nudge ? 1 : 0))
+          : colMatchesRaw
         return (
           <div key={col.key} className="bg-slate-50 rounded-xl p-4">
             <div className="flex items-center justify-between mb-4">
@@ -246,13 +254,29 @@ function KanbanCard({ match, column, expanded, onToggle, onConfirm, confirming, 
     : generateCandidateAlias(match.id)
 
   return (
-    <div className="bg-white rounded-lg border border-slate-100 shadow-sm overflow-hidden">
+    <div className={`bg-white rounded-lg border shadow-sm overflow-hidden ${match.nudge ? 'border-[#F59E0B]/40' : 'border-slate-100'}`}>
+      {match.nudge && (
+        <div className="bg-[#F59E0B]/8 border-b border-[#F59E0B]/20 px-4 py-2.5">
+          <div className="flex items-start gap-2">
+            <span className="text-sm shrink-0 mt-0.5">🔥</span>
+            <div className="min-w-0">
+              <p className="text-xs font-semibold text-[#92400E] mb-0.5">Candidate sent a nudge</p>
+              <p className="text-xs text-[#78350F] leading-relaxed">&ldquo;{match.nudge.message}&rdquo;</p>
+            </div>
+          </div>
+        </div>
+      )}
       <div className="p-4">
         <div className="flex items-start justify-between mb-2">
           <div className="flex-1 min-w-0">
-            <p className="text-sm font-medium text-slate-800 truncate">
-              {candidateDisplay}
-            </p>
+            <div className="flex items-center gap-1.5 mb-0.5">
+              <p className="text-sm font-medium text-slate-800 truncate">
+                {candidateDisplay}
+              </p>
+              {match.nudge && (
+                <span className="shrink-0 text-[10px] bg-[#F59E0B]/15 text-[#92400E] px-1.5 py-0.5 rounded font-semibold">Nudged</span>
+              )}
+            </div>
             <p className="text-xs text-slate-400 truncate">{job?.title}</p>
           </div>
           <span className={`text-lg font-bold ml-2 ${score >= 80 ? 'text-[#10B981]' : score >= 60 ? 'text-[#F59E0B]' : 'text-[#EF4444]'}`}>{score}</span>

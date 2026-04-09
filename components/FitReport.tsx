@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import toast from 'react-hot-toast'
 
@@ -25,10 +25,25 @@ interface Assessment {
   questions_for_human_screen: string[]
 }
 
+interface PrepItem {
+  question: string
+  skill_probed: string
+  why_theyll_ask: string
+  how_to_prepare: string
+}
+
+interface QuestionToAsk {
+  question: string
+  why_ask: string
+  relates_to: string
+}
+
 interface FitReportProps {
   assessment: Assessment
   assessmentId?: string
   existingRating?: number | null
+  role?: 'candidate' | 'recruiter'
+  matchId?: string
 }
 
 function ScoreColor(score: number) {
@@ -73,10 +88,28 @@ function ProgressBar({ value, color }: { value: number; color: string }) {
   )
 }
 
-export default function FitReport({ assessment, assessmentId, existingRating }: FitReportProps) {
+export default function FitReport({ assessment, assessmentId, existingRating, role, matchId }: FitReportProps) {
   const [rating, setRating] = useState<number | null>(existingRating ?? null)
   const [feedback, setFeedback] = useState('')
   const [savingFeedback, setSavingFeedback] = useState(false)
+  const [prepData, setPrepData] = useState<{ prepare_to_answer: PrepItem[]; questions_to_ask: QuestionToAsk[] } | null>(null)
+  const [prepLoading, setPrepLoading] = useState(false)
+
+  useEffect(() => {
+    if (role !== 'candidate' || !matchId) return
+    setPrepLoading(true)
+    fetch('/api/matches/candidate-questions', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ matchId }),
+    })
+      .then(r => r.json())
+      .then(data => {
+        if (data.prepare_to_answer || data.questions_to_ask) setPrepData(data)
+      })
+      .catch(() => {})
+      .finally(() => setPrepLoading(false))
+  }, [role, matchId])
 
   // Support both canonical field names and legacy/seed field names
   const a = assessment as any
@@ -260,8 +293,64 @@ export default function FitReport({ assessment, assessmentId, existingRating }: 
         )}
       </div>
 
-      {/* Questions for screen */}
-      {screenQuestions.length > 0 && (
+      {/* Candidate prep sections */}
+      {role === 'candidate' && (
+        prepLoading ? (
+          <div className="bg-white rounded-xl shadow-sm border border-slate-100 p-6 text-center text-sm text-slate-400">
+            Generating your interview prep...
+          </div>
+        ) : prepData ? (
+          <>
+            {prepData.prepare_to_answer?.length > 0 && (
+              <div className="bg-white rounded-xl shadow-sm border border-slate-100 p-6">
+                <h2 className="font-semibold text-[#0F172A] mb-1">Prepare to answer these</h2>
+                <p className="text-xs text-slate-400 mb-5">Questions the recruiter plans to ask, and how to prep for each.</p>
+                <div className="space-y-5">
+                  {prepData.prepare_to_answer.map((item, i) => (
+                    <div key={i} className="border border-slate-100 rounded-lg p-4">
+                      <div className="flex items-start gap-3 mb-2">
+                        <span className="text-[#6366F1] font-bold shrink-0 text-sm">{i + 1}.</span>
+                        <div>
+                          <p className="text-sm font-medium text-slate-800">{item.question}</p>
+                          <span className="inline-block mt-1 text-xs bg-[#6366F1]/10 text-[#6366F1] px-2 py-0.5 rounded-full font-medium">
+                            {item.skill_probed}
+                          </span>
+                        </div>
+                      </div>
+                      <p className="text-xs text-slate-500 italic mb-2 ml-6">{item.why_theyll_ask}</p>
+                      <p className="text-xs text-slate-700 bg-slate-50 rounded px-3 py-2 ml-6 leading-relaxed">{item.how_to_prepare}</p>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {prepData.questions_to_ask?.length > 0 && (
+              <div className="bg-white rounded-xl shadow-sm border border-slate-100 p-6">
+                <h2 className="font-semibold text-[#0F172A] mb-1">Questions to ask them</h2>
+                <p className="text-xs text-slate-400 mb-5">Tailored to this specific role based on what the fit report flagged.</p>
+                <div className="space-y-4">
+                  {prepData.questions_to_ask.map((item, i) => (
+                    <div key={i} className="border border-slate-100 rounded-lg p-4">
+                      <div className="flex items-start gap-2 mb-2">
+                        <span className="text-[#10B981] font-bold shrink-0 text-sm">{i + 1}.</span>
+                        <p className="text-sm font-medium text-slate-800">{item.question}</p>
+                      </div>
+                      <div className="ml-5 flex items-start gap-2">
+                        <span className="text-xs bg-slate-100 text-slate-500 px-2 py-0.5 rounded-full shrink-0">{item.relates_to}</span>
+                        <p className="text-xs text-slate-500 leading-relaxed">{item.why_ask}</p>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+          </>
+        ) : null
+      )}
+
+      {/* Questions for screen — recruiter view only */}
+      {role !== 'candidate' && screenQuestions.length > 0 && (
         <div className="bg-white rounded-xl shadow-sm border border-slate-100 p-6">
           <h2 className="font-semibold text-[#0F172A] mb-4">Questions for Human Screen</h2>
           <ol className="space-y-2">
@@ -276,7 +365,7 @@ export default function FitReport({ assessment, assessmentId, existingRating }: 
       )}
 
       {/* Recruiter feedback */}
-      {assessmentId && (
+      {role !== 'candidate' && assessmentId && (
         <div className="bg-white rounded-xl shadow-sm border border-slate-100 p-6">
           <h2 className="font-semibold text-[#0F172A] mb-4">Your Feedback</h2>
           <div className="mb-4">

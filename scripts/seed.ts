@@ -1635,7 +1635,7 @@ async function seed() {
           last_synced_at: new Date().toISOString(),
         }, { onConflict: 'user_id' })
 
-        // Autonomous match
+        // Autonomous match — primary (tier-based status)
         await supabase.from('autonomous_matches').insert({
           candidate_id: userId,
           job_posting_id: jobPostingId,
@@ -1653,6 +1653,37 @@ async function seed() {
           company_confirmation_status: statuses.company_confirmation_status,
           revealed_at: statuses.revealed_at,
         })
+
+        // Extra cross-agent matches so every candidate has nudge-testable statuses:
+        // 3 × pending_candidate + 2 × candidate_confirmed against the other 5 agents
+        const otherAgentIndices = agentIds
+          .map((_, idx) => idx)
+          .filter(idx => idx !== ai)
+        // 5 targets — since we have exactly 5 other agents this maps 1:1
+        const nudgeTargets = [0, 1, 2, 3, 4].map(n => otherAgentIndices[n % otherAgentIndices.length])
+        for (let ni = 0; ni < nudgeTargets.length; ni++) {
+          const nai = nudgeTargets[ni]
+          const nSpec = AGENT_SPECS[nai]
+          const nudgeMatchStatus = ni < 3
+            ? { match_status: 'pending_candidate', candidate_confirmation_status: 'pending', company_confirmation_status: 'pending', revealed_at: null }
+            : { match_status: 'candidate_confirmed', candidate_confirmation_status: 'confirmed', company_confirmation_status: 'pending', revealed_at: null }
+          const nudgeScore = Math.max(40, Math.min(95, scores.overall - 4 + ni * 2))
+          const nudgeRec = nudgeScore >= 80 ? 'strong_yes' : nudgeScore >= 60 ? 'yes' : 'maybe'
+          await supabase.from('autonomous_matches').insert({
+            candidate_id: userId,
+            job_posting_id: jobPostingIds[nai],
+            buyer_agent_id: agentIds[nai],
+            recruiter_id: recruiterIds[nSpec.company_idx],
+            overall_fit_score: nudgeScore,
+            technical_fit_score: Math.max(30, nudgeScore - 5),
+            role_fit_score: Math.max(30, nudgeScore - 3),
+            github_evidence_score: Math.max(30, nudgeScore - 8),
+            fit_report: fitReport,
+            recommendation: nudgeRec,
+            recommendation_summary: `Strong technical alignment with the ${nSpec.role_title} role at ${COMPANIES[nSpec.company_idx].company_name}.`,
+            ...nudgeMatchStatus,
+          })
+        }
 
         totalCreated++
       }
@@ -1686,10 +1717,14 @@ async function seed() {
   })
 
   console.log('\n─────────────────────────────────────────')
-  console.log('MATCH STATUS BREAKDOWN (per agent)\n')
+  console.log('MATCH STATUS BREAKDOWN (per agent — primary matches)\n')
   console.log('  Strong:  2 revealed, 2 mutual_confirmed, 1 candidate_confirmed')
   console.log('  Medium:  12 pending_candidate, 5 candidate_confirmed, 3 company_confirmed')
   console.log('  Poor:    15 below_threshold, 10 candidate_dismissed')
+  console.log('\nNUDGE TESTING')
+  console.log('  Every candidate also has 5 cross-agent matches:')
+  console.log('    3 × pending_candidate + 2 × candidate_confirmed')
+  console.log('  Log in as any candidate → Opportunities to test the Nudge button')
 
   console.log('\n─────────────────────────────────────────')
   console.log('SAMPLE CANDIDATE LOGINS (password for all: Candidate123!)\n')

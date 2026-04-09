@@ -37,12 +37,33 @@ const recLabels: Record<string, string> = {
   no: 'Weak Match',
 }
 
-export default function OpportunitiesFeed({ matches, githubConnected }: { matches: Match[]; githubConnected: boolean }) {
+export default function OpportunitiesFeed({ matches, githubConnected, nudgesUsed: initialNudgesUsed, nudgedMatchIds: initialNudgedMatchIds }: {
+  matches: Match[]
+  githubConnected: boolean
+  nudgesUsed: number
+  nudgedMatchIds: string[]
+}) {
   const router = useRouter()
   const [filter, setFilter] = useState<'all' | 'strong' | 'good' | 'maybe'>('all')
   const [expanded, setExpanded] = useState<string | null>(null)
   const [localMatches, setLocalMatches] = useState(matches)
   const [confirming, setConfirming] = useState<string | null>(null)
+  const [nudgesUsed, setNudgesUsed] = useState(initialNudgesUsed)
+  const [nudgedMatchIds, setNudgedMatchIds] = useState<string[]>(initialNudgedMatchIds)
+  const [nudgeModal, setNudgeModal] = useState<string | null>(null) // matchId
+
+  const handleNudge = async (matchId: string, message: string) => {
+    const res = await fetch('/api/nudges', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ matchId, message }),
+    })
+    const data = await res.json()
+    if (!res.ok) throw new Error(data.error || 'Failed')
+    setNudgesUsed(data.nudgesUsed)
+    setNudgedMatchIds(prev => [...prev, matchId])
+    setNudgeModal(null)
+  }
 
   if (!githubConnected) {
     return (
@@ -125,18 +146,101 @@ export default function OpportunitiesFeed({ matches, githubConnected }: { matche
           onToggleExpand={() => setExpanded(expanded === match.id ? null : match.id)}
           onConfirm={handleConfirm}
           confirming={confirming === match.id}
+          nudgesUsed={nudgesUsed}
+          alreadyNudged={nudgedMatchIds.includes(match.id)}
+          onNudge={() => setNudgeModal(match.id)}
         />
       ))}
+
+      {nudgeModal && (
+        <NudgeModal
+          matchId={nudgeModal}
+          nudgesRemaining={5 - nudgesUsed}
+          onClose={() => setNudgeModal(null)}
+          onSubmit={handleNudge}
+        />
+      )}
     </div>
   )
 }
 
-function MatchCard({ match, expanded, onToggleExpand, onConfirm, confirming }: {
+function NudgeModal({ matchId, nudgesRemaining, onClose, onSubmit }: {
+  matchId: string
+  nudgesRemaining: number
+  onClose: () => void
+  onSubmit: (matchId: string, message: string) => Promise<void>
+}) {
+  const [message, setMessage] = useState('')
+  const [submitting, setSubmitting] = useState(false)
+  const [error, setError] = useState('')
+
+  const handleSubmit = async () => {
+    if (!message.trim()) return
+    setSubmitting(true)
+    setError('')
+    try {
+      await onSubmit(matchId, message)
+      toast.success('Nudge sent — the recruiter will see your message')
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : 'Failed to send nudge')
+    } finally {
+      setSubmitting(false)
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4">
+      <div className="bg-white rounded-xl shadow-xl w-full max-w-md p-6">
+        <div className="flex items-center justify-between mb-4">
+          <div>
+            <h2 className="text-lg font-semibold text-[#0F172A]">Send a Nudge</h2>
+            <p className="text-xs text-slate-400 mt-0.5">{nudgesRemaining} nudge{nudgesRemaining !== 1 ? 's' : ''} remaining</p>
+          </div>
+          <button onClick={onClose} className="text-slate-400 hover:text-slate-600 text-xl leading-none">×</button>
+        </div>
+        <p className="text-sm text-slate-500 mb-4">
+          Write one sentence explaining why you are particularly interested in this role. The recruiter will see this on your match card.
+        </p>
+        <div className="relative mb-1">
+          <textarea
+            value={message}
+            onChange={e => setMessage(e.target.value.slice(0, 200))}
+            rows={3}
+            autoFocus
+            className="w-full border border-slate-200 rounded-lg p-3 text-sm focus:outline-none focus:ring-2 focus:ring-[#6366F1]/30 focus:border-[#6366F1] resize-none"
+            placeholder="I am especially interested because..."
+          />
+        </div>
+        <p className={`text-xs text-right mb-4 ${message.length > 180 ? 'text-[#EF4444]' : 'text-slate-400'}`}>
+          {message.length}/200
+        </p>
+        {error && <p className="text-xs text-[#EF4444] mb-3">{error}</p>}
+        <div className="flex gap-3">
+          <button onClick={onClose} className="flex-1 border border-slate-200 text-slate-600 py-2.5 rounded-lg text-sm hover:border-slate-300 transition-colors">
+            Cancel
+          </button>
+          <button
+            onClick={handleSubmit}
+            disabled={!message.trim() || submitting}
+            className="flex-1 bg-[#6366F1] text-white py-2.5 rounded-lg text-sm font-semibold hover:bg-[#5558e8] disabled:opacity-50 transition-colors"
+          >
+            {submitting ? 'Sending...' : 'Send nudge 🔥'}
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function MatchCard({ match, expanded, onToggleExpand, onConfirm, confirming, nudgesUsed, alreadyNudged, onNudge }: {
   match: Match
   expanded: boolean
   onToggleExpand: () => void
   onConfirm: (id: string, action: 'confirm' | 'dismiss') => void
   confirming: boolean
+  nudgesUsed: number
+  alreadyNudged: boolean
+  onNudge: () => void
 }) {
   const job = match.job_postings
   const revealed = isRevealed(match.match_status)
@@ -273,6 +377,23 @@ function MatchCard({ match, expanded, onToggleExpand, onConfirm, confirming }: {
           </div>
         )}
 
+        {/* Nudge button — visible on nudgeable statuses */}
+        {!dismissed && ['pending_candidate', 'candidate_confirmed'].includes(match.match_status) && (
+          <div className="mt-3">
+            {alreadyNudged ? (
+              <p className="text-xs text-[#6366F1] text-center">🔥 Nudge sent — recruiter can see your message</p>
+            ) : (
+              <button
+                onClick={onNudge}
+                disabled={nudgesUsed >= 5}
+                className="w-full border border-[#6366F1]/40 text-[#6366F1] py-2 rounded-lg text-xs font-medium hover:bg-[#6366F1]/5 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+              >
+                {nudgesUsed >= 5 ? 'No nudges remaining (0/5)' : `🔥 Nudge recruiter · ${5 - nudgesUsed} remaining`}
+              </button>
+            )}
+          </div>
+        )}
+
         {revealed && (
           <div className="border-t border-slate-100 pt-4 space-y-3">
             <div className="bg-[#10B981]/5 rounded-lg p-4">
@@ -301,7 +422,7 @@ function MatchCard({ match, expanded, onToggleExpand, onConfirm, confirming }: {
 
       {expanded && match.fit_report && (
         <div className="border-t border-slate-100 p-6">
-          <FitReport assessment={match.fit_report} />
+          <FitReport assessment={match.fit_report} role="candidate" matchId={match.id} />
         </div>
       )}
     </div>

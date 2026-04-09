@@ -39,11 +39,19 @@ export default async function OpportunitiesPage() {
       : null,
   }))
 
-  const { data: githubProfile } = await supabase
-    .from('github_profiles')
-    .select('ingestion_status, last_synced_at')
-    .eq('user_id', user!.id)
-    .single()
+  const matchIds = (rawMatches ?? []).map((m: any) => m.id)
+
+  const [githubRes, candidateProfileRes, nudgesRes] = await Promise.all([
+    supabase.from('github_profiles').select('ingestion_status, last_synced_at').eq('user_id', user!.id).single(),
+    supabase.from('candidate_profiles').select('nudges_used').eq('user_id', user!.id).single(),
+    matchIds.length
+      ? supabase.from('nudges').select('match_id').eq('candidate_id', user!.id).in('match_id', matchIds)
+      : { data: [] },
+  ])
+
+  const githubProfile = githubRes.data
+  const nudgesUsed = candidateProfileRes.data?.nudges_used ?? 0
+  const nudgedMatchIds = (nudgesRes.data ?? []).map((n: any) => n.match_id)
 
   return (
     <div className="p-8">
@@ -62,7 +70,12 @@ export default async function OpportunitiesPage() {
         </div>
       </div>
 
-      <OpportunitiesFeed matches={matches ?? []} githubConnected={!!githubProfile} />
+      <OpportunitiesFeed
+        matches={matches ?? []}
+        githubConnected={!!githubProfile}
+        nudgesUsed={nudgesUsed}
+        nudgedMatchIds={nudgedMatchIds}
+      />
     </div>
   )
 }

@@ -51,8 +51,9 @@ export default async function DashboardPage() {
     if (agentIds.length) {
       const { data } = await admin
         .from('autonomous_matches')
-        .select('id,match_status,overall_fit_score')
+        .select('id,buyer_agent_id,match_status,overall_fit_score')
         .in('buyer_agent_id', agentIds)
+        .not('match_status', 'eq', 'below_threshold')
       recruiterMatches = data ?? []
     }
   }
@@ -185,53 +186,95 @@ export default async function DashboardPage() {
       )}
 
       {isRecruiter && (
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-          <div className="bg-white rounded-xl shadow-sm border border-slate-100 p-6">
-            <h2 className="font-semibold text-[#0F172A] mb-2">Buyer Agents</h2>
-            <p className="text-3xl font-bold text-[#6366F1] mb-1">{agents?.length ?? 0}</p>
-            <p className="text-slate-500 text-sm mb-4">Active hiring agents</p>
-            <Link
-              href="/dashboard/agents/new"
-              className="inline-flex items-center gap-2 bg-[#6366F1] text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-[#5558e8] transition-colors"
-            >
-              + New Buyer Agent
-            </Link>
+        <div className="space-y-6">
+          {/* Top summary bar */}
+          <div className="grid grid-cols-3 gap-4">
+            {(() => {
+              const needsAction = recruiterMatches.filter((m: any) => m.match_status === 'candidate_confirmed').length
+              const revealed = recruiterMatches.filter((m: any) => ['revealed', 'mutual_confirmed', 'in_conversation', 'offer_made'].includes(m.match_status)).length
+              return (
+                <>
+                  <div className="bg-white rounded-xl shadow-sm border border-slate-100 p-5">
+                    <p className="text-2xl font-bold text-[#6366F1]">{agents?.length ?? 0}</p>
+                    <p className="text-xs text-slate-500 mt-0.5">Active roles</p>
+                    <Link href="/dashboard/agents/new" className="text-xs text-[#6366F1] hover:underline mt-2 block">+ New role</Link>
+                  </div>
+                  <div className="bg-white rounded-xl shadow-sm border border-slate-100 p-5">
+                    <p className={`text-2xl font-bold ${needsAction > 0 ? 'text-[#F59E0B]' : 'text-[#0F172A]'}`}>{needsAction}</p>
+                    <p className="text-xs text-slate-500 mt-0.5">Pending your review</p>
+                    {needsAction > 0 && <p className="text-xs text-[#F59E0B] mt-1">Candidates waiting on you</p>}
+                  </div>
+                  <div className="bg-white rounded-xl shadow-sm border border-slate-100 p-5">
+                    <p className="text-2xl font-bold text-[#10B981]">{revealed}</p>
+                    <p className="text-xs text-slate-500 mt-0.5">Revealed candidates</p>
+                  </div>
+                </>
+              )
+            })()}
           </div>
 
-          <div className="bg-white rounded-xl shadow-sm border border-slate-100 p-6">
-            <h2 className="font-semibold text-[#0F172A] mb-4">Match Pipeline</h2>
-            <div className="grid grid-cols-2 gap-4">
-              <div>
-                <p className="text-2xl font-bold text-[#0F172A]">{recruiterMatches.length}</p>
-                <p className="text-xs text-slate-500">Total matches</p>
-              </div>
-              <div>
-                <p className="text-2xl font-bold text-[#10B981]">
-                  {recruiterMatches.filter(m => ['revealed', 'mutual_confirmed', 'in_conversation'].includes(m.match_status)).length}
-                </p>
-                <p className="text-xs text-slate-500">Mutual confirmed</p>
-              </div>
+          {/* Role pipeline cards */}
+          <div>
+            <div className="flex items-center justify-between mb-3">
+              <h2 className="text-sm font-semibold text-slate-500 uppercase tracking-wide">Role Pipelines</h2>
+              <Link href="/dashboard/matches" className="text-xs text-[#6366F1] hover:underline">Full overview →</Link>
             </div>
-            <Link href="/dashboard/matches" className="mt-4 block text-sm text-[#6366F1] hover:underline">View match queue →</Link>
-          </div>
 
-          <div className="bg-white rounded-xl shadow-sm border border-slate-100 p-6 md:col-span-2">
-            <h2 className="font-semibold text-[#0F172A] mb-3">Recent Agents</h2>
-            {agents && agents.length > 0 ? (
-              <ul className="space-y-2">
-                {agents.slice(0, 5).map((agent: any) => (
-                  <li key={agent.id} className="flex items-center justify-between py-2 border-b border-slate-50 last:border-0">
-                    <Link href={`/dashboard/agents/${agent.id}`} className="text-sm text-[#6366F1] hover:underline">
-                      {agent.role_title} — {agent.company_name}
-                    </Link>
-                    <span className="text-xs text-slate-400">
-                      {recruiterMatches.filter(m => m.job_id === agent.id).length} matches
-                    </span>
-                  </li>
-                ))}
-              </ul>
+            {!agents || agents.length === 0 ? (
+              <div className="bg-white rounded-xl shadow-sm border border-slate-100 p-8 text-center">
+                <p className="text-slate-400 text-sm mb-3">No roles yet.</p>
+                <Link href="/dashboard/agents/new" className="inline-block bg-[#6366F1] text-white px-5 py-2.5 rounded-lg text-sm font-medium hover:bg-[#5558e8] transition-colors">
+                  Create your first buyer agent
+                </Link>
+              </div>
             ) : (
-              <p className="text-slate-500 text-sm">No agents yet. <Link href="/dashboard/agents/new" className="text-[#6366F1] hover:underline">Create your first one</Link></p>
+              <div className="grid gap-3">
+                {agents.map((agent: any) => {
+                  const agentMatches = recruiterMatches.filter((m: any) => m.buyer_agent_id === agent.id)
+                  const needsAction = agentMatches.filter((m: any) => m.match_status === 'candidate_confirmed').length
+                  const pendingReview = agentMatches.filter((m: any) => ['pending_candidate', 'assessed', 'candidate_confirmed'].includes(m.match_status)).length
+                  const waiting = agentMatches.filter((m: any) => m.match_status === 'company_confirmed').length
+                  const confirmed = agentMatches.filter((m: any) => ['mutual_confirmed', 'revealed'].includes(m.match_status)).length
+                  const inConversation = agentMatches.filter((m: any) => ['in_conversation', 'offer_made'].includes(m.match_status)).length
+                  return (
+                    <div key={agent.id} className="bg-white rounded-xl shadow-sm border border-slate-100 p-5">
+                      <div className="flex items-start justify-between gap-4">
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-2 mb-0.5">
+                            <p className="font-semibold text-[#0F172A]">{agent.role_title}</p>
+                            {needsAction > 0 && (
+                              <span className="bg-[#F59E0B] text-white text-[10px] font-bold px-1.5 py-0.5 rounded-full shrink-0">
+                                {needsAction} to review
+                              </span>
+                            )}
+                          </div>
+                          <p className="text-slate-500 text-sm">{agent.company_name}</p>
+                          {agentMatches.length > 0 && (
+                            <div className="flex items-center gap-3 mt-2 text-xs text-slate-400">
+                              {pendingReview > 0 && <span><span className="font-medium text-slate-600">{pendingReview}</span> pending</span>}
+                              {waiting > 0 && <span><span className="font-medium text-slate-600">{waiting}</span> waiting</span>}
+                              {confirmed > 0 && <span className="text-[#10B981]"><span className="font-medium">{confirmed}</span> confirmed</span>}
+                              {inConversation > 0 && <span className="text-[#6366F1]"><span className="font-medium">{inConversation}</span> in conversation</span>}
+                              {agentMatches.length === 0 && <span>No matches yet</span>}
+                            </div>
+                          )}
+                          {agentMatches.length === 0 && <p className="text-xs text-slate-400 mt-1">Matching in progress...</p>}
+                        </div>
+                        <Link
+                          href={`/dashboard/agents/${agent.id}/matches`}
+                          className={`shrink-0 px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
+                            needsAction > 0
+                              ? 'bg-[#F59E0B] text-white hover:bg-[#D97706]'
+                              : 'border border-slate-200 text-slate-600 hover:border-[#6366F1] hover:text-[#6366F1]'
+                          }`}
+                        >
+                          View Pipeline →
+                        </Link>
+                      </div>
+                    </div>
+                  )
+                })}
+              </div>
             )}
           </div>
         </div>

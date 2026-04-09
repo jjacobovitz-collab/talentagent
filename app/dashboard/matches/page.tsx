@@ -44,14 +44,25 @@ export default async function MatchQueuePage() {
         .in('user_id', candidateIds)
     : { data: [] }
 
+  const { data: crossReferences } = candidateIds.length
+    ? await admin
+        .from('profile_cross_references')
+        .select('user_id, consistency_score, consistency_rating, cross_reference_summary, timeline_analysis, questions_to_ask')
+        .in('user_id', candidateIds)
+    : { data: [] }
+
   const profileByUserId = Object.fromEntries(
     (candidateProfiles ?? []).map((cp: any) => [cp.user_id, cp])
   )
+  const crossRefByUserId = Object.fromEntries(
+    (crossReferences ?? []).map((cr: any) => [cr.user_id, cr])
+  )
 
-  // Step 4: merge candidate_profiles onto each match
+  // Step 4: merge candidate_profiles and cross_references onto each match
   const matches = (rawMatches ?? []).map((m: any) => ({
     ...m,
     candidate_profiles: profileByUserId[m.candidate_id] ?? null,
+    cross_reference: crossRefByUserId[m.candidate_id] ?? null,
   }))
 
   return (

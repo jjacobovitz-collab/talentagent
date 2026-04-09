@@ -21,9 +21,22 @@ export default async function DashboardLayout({
     .eq('id', user.id)
     .single()
 
+  const { data: linkedinData } = profile?.role === 'candidate'
+    ? await supabase.from('linkedin_profiles').select('parse_status').eq('user_id', user.id).single()
+    : { data: null }
+
+  const { data: crossRefData } = profile?.role === 'candidate' && linkedinData?.parse_status === 'complete'
+    ? await supabase.from('profile_cross_references').select('consistency_score').eq('user_id', user.id).single()
+    : { data: null }
+
+  const linkedinStatusProp = linkedinData ? {
+    parse_status: linkedinData.parse_status,
+    consistency_score: crossRefData?.consistency_score ?? null,
+  } : null
+
   return (
     <div className="flex h-screen bg-[#F8FAFC]">
-      <Sidebar profile={profile} />
+      <Sidebar profile={profile} linkedinStatus={linkedinStatusProp} />
       <div className="flex-1 flex flex-col overflow-hidden">
         <header className="bg-[#0F172A] border-b border-white/10 px-6 py-3 flex items-center justify-end">
           <NotificationBell />

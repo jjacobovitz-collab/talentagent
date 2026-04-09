@@ -18,7 +18,9 @@
       "Bash(curl:*)",
       "Bash(node:*)",
       "Bash(npx tsx:*)",
-      "Bash(npx tsc:*)"
+      "Bash(npx tsc:*)",
+      "Bash(next build:*)",
+      "Bash(npx next:*)"
     ]
   }
 }

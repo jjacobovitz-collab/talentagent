@@ -21,9 +21,10 @@ export default async function DashboardPage() {
   let recentMatches: any[] = []
   let agents = null
   let recruiterMatches: any[] = []
+  let onboardingSession = null
 
   if (isCandidate) {
-    const [cpRes, ghRes, matchRes] = await Promise.all([
+    const [cpRes, ghRes, matchRes, onboardingRes] = await Promise.all([
       supabase.from('candidate_profiles').select('*').eq('user_id', user!.id).single(),
       supabase.from('github_profiles').select('ingestion_status,github_username,repos_analyzed').eq('user_id', user!.id).single(),
       // admin client: RLS has no recruiter read policy on autonomous_matches
@@ -33,10 +34,12 @@ export default async function DashboardPage() {
         .neq('match_status', 'candidate_dismissed')
         .order('overall_fit_score', { ascending: false })
         .limit(3),
+      supabase.from('onboarding_sessions').select('agent_readiness').eq('user_id', user!.id).single(),
     ])
     candidateProfile = cpRes.data
     githubProfile = ghRes.data
     recentMatches = matchRes.data ?? []
+    onboardingSession = onboardingRes.data
   }
 
   if (isRecruiter) {
@@ -67,6 +70,22 @@ export default async function DashboardPage() {
 
       {isCandidate && (
         <div className="space-y-6">
+          {/* Onboarding banner — shown when no onboarding session or readiness is not_ready */}
+          {(!onboardingSession || onboardingSession.agent_readiness === 'not_ready') && (
+            <div className="bg-[#6366F1]/5 border border-[#6366F1]/30 rounded-xl p-5 flex items-center justify-between">
+              <div>
+                <p className="font-semibold text-[#0F172A]">Set up your agent</p>
+                <p className="text-slate-500 text-sm mt-0.5">Complete your profile to activate matching</p>
+              </div>
+              <Link
+                href="/dashboard/onboarding"
+                className="shrink-0 bg-[#6366F1] text-white px-5 py-2.5 rounded-lg text-sm font-medium hover:bg-[#5558e8] transition-colors"
+              >
+                Complete profile →
+              </Link>
+            </div>
+          )}
+
           {/* GitHub status */}
           {!githubProfile || githubProfile.ingestion_status === 'pending' ? (
             <div className="bg-[#6366F1]/5 border border-[#6366F1]/20 rounded-xl p-6 flex items-center justify-between">
@@ -83,7 +102,7 @@ export default async function DashboardPage() {
               <span className="text-[#10B981] text-lg">✓</span>
               <div>
                 <p className="text-sm font-medium text-[#0F172A]">GitHub connected — @{githubProfile.github_username}</p>
-                <p className="text-xs text-slate-500">{githubProfile.repos_analyzed ?? 0} repositories analyzed · Agent is active</p>
+                <p className="text-xs text-slate-500">{Array.isArray(githubProfile.repos_analyzed) ? githubProfile.repos_analyzed.length : (githubProfile.repos_analyzed ?? 0)} repositories analyzed · Agent is active</p>
               </div>
               <Link href="/dashboard/github" className="ml-auto text-xs text-slate-400 hover:text-slate-600 transition-colors">Manage</Link>
             </div>

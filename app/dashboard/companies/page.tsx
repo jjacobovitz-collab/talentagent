@@ -1,5 +1,6 @@
 import { createClient } from '@/lib/supabase/server'
 import Link from 'next/link'
+import { calculateCompanyProfileCompleteness } from '@/lib/utils/company'
 
 export default async function CompaniesPage() {
   const supabase = createClient()
@@ -45,52 +46,71 @@ export default async function CompaniesPage() {
         </div>
       ) : (
         <div className="grid gap-4">
-          {companies.map((company: any) => (
-            <div key={company.id} className="bg-white rounded-xl shadow-sm border border-slate-100 p-6">
-              <div className="flex items-start justify-between">
-                <div className="flex-1">
-                  <div className="flex items-center gap-3 mb-2">
-                    <h3 className="font-semibold text-[#0F172A] text-lg">{company.company_name}</h3>
-                    {company.company_stage && (
-                      <span className="px-2 py-0.5 bg-[#6366F1]/10 text-[#6366F1] text-xs rounded-full capitalize">
-                        {company.company_stage.replace('_', ' ')}
-                      </span>
-                    )}
+          {companies.map((company) => {
+            const completeness = calculateCompanyProfileCompleteness(company as Record<string, unknown>)
+            const isLow = completeness < 40
+            return (
+              <div key={company.id} className="bg-white rounded-xl shadow-sm border border-slate-100 p-6">
+                <div className="flex items-start justify-between">
+                  <div className="flex-1">
+                    <div className="flex items-center gap-3 mb-1">
+                      <h3 className="font-semibold text-[#0F172A] text-lg">{company.company_name}</h3>
+                      {company.company_stage && (
+                        <span className="px-2 py-0.5 bg-[#6366F1]/10 text-[#6366F1] text-xs rounded-full capitalize">
+                          {company.company_stage.replace('_', ' ')}
+                        </span>
+                      )}
+                    </div>
+
+                    {/* Completeness bar */}
+                    <div className="flex items-center gap-2 mb-3">
+                      <div className="w-32 bg-slate-100 rounded-full h-1.5">
+                        <div
+                          className={`h-1.5 rounded-full transition-all ${completeness >= 70 ? 'bg-[#10B981]' : completeness >= 40 ? 'bg-[#F59E0B]' : 'bg-[#EF4444]'}`}
+                          style={{ width: `${completeness}%` }}
+                        />
+                      </div>
+                      <span className="text-xs text-slate-500">{completeness}% complete</span>
+                      {isLow && (
+                        <span className="text-xs text-[#F59E0B]">· Complete your profile to improve match quality</span>
+                      )}
+                    </div>
+
+                    <div className="flex gap-2 flex-wrap mb-2">
+                      {(company.core_languages || []).slice(0, 5).map((lang: string) => (
+                        <span key={lang} className="px-2 py-0.5 bg-slate-100 text-slate-600 text-xs rounded">
+                          {lang}
+                        </span>
+                      ))}
+                      {(company.core_frameworks || []).slice(0, 3).map((fw: string) => (
+                        <span key={fw} className="px-2 py-0.5 bg-slate-100 text-slate-600 text-xs rounded">
+                          {fw}
+                        </span>
+                      ))}
+                    </div>
+                    <p className="text-slate-500 text-sm">
+                      {company.industry && `${company.industry} · `}
+                      {company.company_size && `${company.company_size} employees`}
+                    </p>
                   </div>
-                  <div className="flex gap-2 flex-wrap mb-3">
-                    {(company.core_languages || []).slice(0, 5).map((lang: string) => (
-                      <span key={lang} className="px-2 py-0.5 bg-slate-100 text-slate-600 text-xs rounded">
-                        {lang}
-                      </span>
-                    ))}
-                    {(company.core_frameworks || []).slice(0, 3).map((fw: string) => (
-                      <span key={fw} className="px-2 py-0.5 bg-slate-100 text-slate-600 text-xs rounded">
-                        {fw}
-                      </span>
-                    ))}
+                  <div className="flex gap-2 ml-4">
+                    <Link
+                      href={`/dashboard/companies/${company.id}`}
+                      className="px-4 py-2 border border-slate-200 text-slate-600 rounded-lg text-sm hover:border-[#6366F1] hover:text-[#6366F1] transition-colors"
+                    >
+                      Edit
+                    </Link>
+                    <Link
+                      href={`/dashboard/agents/new?company=${company.id}`}
+                      className="px-4 py-2 bg-[#6366F1] text-white rounded-lg text-sm hover:bg-[#5558e8] transition-colors"
+                    >
+                      Add Role
+                    </Link>
                   </div>
-                  <p className="text-slate-500 text-sm">
-                    {company.industry && `${company.industry} · `}
-                    {company.company_size && `${company.company_size} employees`}
-                  </p>
-                </div>
-                <div className="flex gap-2 ml-4">
-                  <Link
-                    href={`/dashboard/companies/${company.id}`}
-                    className="px-4 py-2 border border-slate-200 text-slate-600 rounded-lg text-sm hover:border-[#6366F1] hover:text-[#6366F1] transition-colors"
-                  >
-                    Edit
-                  </Link>
-                  <Link
-                    href={`/dashboard/agents/new?company=${company.id}`}
-                    className="px-4 py-2 bg-[#6366F1] text-white rounded-lg text-sm hover:bg-[#5558e8] transition-colors"
-                  >
-                    Add Role
-                  </Link>
                 </div>
               </div>
-            </div>
-          ))}
+            )
+          })}
         </div>
       )}
     </div>

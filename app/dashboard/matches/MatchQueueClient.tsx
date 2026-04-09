@@ -1,7 +1,8 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
+import { createClient } from '@/lib/supabase/client'
 import FitReport from '@/components/FitReport'
 import RatingForm from '@/components/RatingForm'
 import toast from 'react-hot-toast'
@@ -21,6 +22,13 @@ interface Match {
   candidate_confirmed_at: string | null
   job_postings: any
   candidate_profiles: any
+  cross_reference?: {
+    consistency_score: number | null
+    consistency_rating: string | null
+    cross_reference_summary: string | null
+    timeline_analysis: any[]
+    questions_to_ask: string[]
+  } | null
 }
 
 const COLUMNS = [
@@ -35,6 +43,14 @@ export default function MatchQueueClient({ matches }: { matches: Match[]; recrui
   const [localMatches, setLocalMatches] = useState(matches)
   const [confirming, setConfirming] = useState<string | null>(null)
   const [expanded, setExpanded] = useState<string | null>(null)
+  const [atsConnections, setAtsConnections] = useState<{ ats_type: string }[]>([])
+
+  useEffect(() => {
+    const supabase = createClient()
+    supabase.from('ats_connections').select('ats_type').eq('is_active', true).then(({ data }) => {
+      if (data) setAtsConnections(data)
+    })
+  }, [])
 
   const handleConfirm = async (matchId: string, action: 'confirm' | 'dismiss') => {
     setConfirming(matchId)
@@ -91,6 +107,7 @@ export default function MatchQueueClient({ matches }: { matches: Match[]; recrui
                   onToggle={() => setExpanded(expanded === match.id ? null : match.id)}
                   onConfirm={handleConfirm}
                   confirming={confirming === match.id}
+                  atsConnections={atsConnections}
                 />
               ))}
 
@@ -105,14 +122,120 @@ export default function MatchQueueClient({ matches }: { matches: Match[]; recrui
   )
 }
 
-function KanbanCard({ match, column, expanded, onToggle, onConfirm, confirming }: {
+function ProfileVerification({ match, fullReveal }: { match: Match; fullReveal: boolean }) {
+  const [showDetails, setShowDetails] = useState(false)
+  const githubStrength = match.candidate_profiles?.github_strength ?? match.fit_report?.technical_fit_score ?? null
+  const linkedinScore = match.cross_reference?.consistency_score ?? null
+  const combinedScore = githubStrength != null && linkedinScore != null
+    ? Math.round((githubStrength * 10 + linkedinScore) / 2)
+    : null
+
+  const summary = match.cross_reference?.cross_reference_summary
+    ?? (githubStrength != null ? `GitHub strength: ${githubStrength}/10` : 'Verification data not yet available')
+
+  if (githubStrength == null && linkedinScore == null) return null
+
+  return (
+    <div className="bg-slate-50 rounded-lg p-3 mt-2 border border-slate-100">
+      <p className="text-xs font-semibold text-slate-600 mb-2">Profile Verification</p>
+      <div className="flex items-center gap-3 mb-2">
+        {githubStrength != null && (
+          <div className="text-center">
+            <p className="text-xs text-slate-400">GitHub</p>
+            <p className="text-sm font-bold text-[#0F172A]">{githubStrength}/10</p>
+          </div>
+        )}
+        {linkedinScore != null && (
+          <div className="text-center">
+            <p className="text-xs text-slate-400">LinkedIn</p>
+            <p className="text-sm font-bold text-[#0F172A]">{linkedinScore}/100</p>
+          </div>
+        )}
+        {combinedScore != null && (
+          <div className="text-center ml-auto">
+            <p className="text-xs text-slate-400">Combined</p>
+            <p className={`text-sm font-bold ${combinedScore >= 80 ? 'text-[#10B981]' : combinedScore >= 60 ? 'text-[#F59E0B]' : 'text-[#EF4444]'}`}>
+              {combinedScore}%
+            </p>
+          </div>
+        )}
+      </div>
+      <p className="text-xs text-slate-500 leading-relaxed">{summary}</p>
+
+      {fullReveal && match.cross_reference && (
+        <div className="mt-2">
+          <button
+            onClick={() => setShowDetails(d => !d)}
+            className="text-xs text-[#6366F1] hover:underline"
+          >
+            {showDetails ? '▲ Hide details' : '▼ Show timeline & questions'}
+          </button>
+          {showDetails && (
+            <div className="mt-2 space-y-3">
+              {match.cross_reference.timeline_analysis?.length > 0 && (
+                <div>
+                  <p className="text-xs font-medium text-slate-500 mb-1">Timeline</p>
+                  <div className="space-y-1">
+                    {match.cross_reference.timeline_analysis.slice(0, 5).map((t: any, i: number) => (
+                      <div key={i} className="text-xs text-slate-600 bg-white rounded p-2 border border-slate-100">
+                        <span className="font-medium">{t.period}:</span> {t.notes || t.github_evidence}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+              {match.cross_reference.questions_to_ask?.length > 0 && (
+                <div>
+                  <p className="text-xs font-medium text-slate-500 mb-1">Suggested questions</p>
+                  <ul className="space-y-1">
+                    {match.cross_reference.questions_to_ask.map((q: string, i: number) => (
+                      <li key={i} className="text-xs text-slate-600 flex gap-1">
+                        <span className="text-[#6366F1] shrink-0">{i + 1}.</span> {q}
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
+
+function KanbanCard({ match, column, expanded, onToggle, onConfirm, confirming, atsConnections }: {
   match: Match
   column: string
   expanded: boolean
   onToggle: () => void
   onConfirm: (id: string, action: 'confirm' | 'dismiss') => void
   confirming: boolean
+  atsConnections: { ats_type: string }[]
 }) {
+  const [atsPushed, setAtsPushed] = useState<string | null>(null)
+  const [atsPushing, setAtsPushing] = useState(false)
+
+  const handleAtsPush = async (atsType: string) => {
+    setAtsPushing(true)
+    try {
+      const res = await fetch('/api/ats/push-candidate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ matchId: match.id, atsType })
+      })
+      if (res.ok) {
+        setAtsPushed(atsType)
+        toast.success(`Candidate added to ${atsType === 'greenhouse' ? 'Greenhouse' : 'Lever'}`)
+      } else {
+        toast.error('Failed to push to ATS')
+      }
+    } catch {
+      toast.error('Failed to push to ATS')
+    } finally {
+      setAtsPushing(false)
+    }
+  }
   const job = match.job_postings
   const candidate = match.candidate_profiles
   const revealed = isRevealed(match.match_status)
@@ -179,6 +302,27 @@ function KanbanCard({ match, column, expanded, onToggle, onConfirm, confirming }
                 </a>
               )}
             </div>
+            <ProfileVerification match={match} fullReveal={true} />
+            {atsConnections.length > 0 && (
+              <div className="flex flex-wrap gap-2">
+                {atsPushed ? (
+                  <span className="text-xs bg-[#10B981]/10 text-[#10B981] px-3 py-1 rounded-full font-medium">
+                    ✓ Added to {atsPushed === 'greenhouse' ? 'Greenhouse' : 'Lever'}
+                  </span>
+                ) : (
+                  atsConnections.map(conn => (
+                    <button
+                      key={conn.ats_type}
+                      onClick={() => handleAtsPush(conn.ats_type)}
+                      disabled={atsPushing}
+                      className="text-xs border border-slate-200 text-slate-600 px-3 py-1 rounded-full hover:border-slate-400 disabled:opacity-50 transition-colors"
+                    >
+                      {atsPushing ? 'Pushing...' : `Push to ${conn.ats_type === 'greenhouse' ? 'Greenhouse' : 'Lever'}`}
+                    </button>
+                  ))
+                )}
+              </div>
+            )}
             <RatingForm matchId={match.id} ratingStage="post_reveal" role="recruiter" />
           </div>
         )}

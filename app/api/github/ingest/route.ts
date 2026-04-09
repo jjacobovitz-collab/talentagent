@@ -1,280 +1,194 @@
 import { NextRequest, NextResponse } from 'next/server'
-import Anthropic from '@anthropic-ai/sdk'
+import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
-
-const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY })
-
-function buildGithubAnalysisPrompt(githubData: any): string {
-  return `You are analyzing a software engineer's GitHub profile to build a detailed technical fingerprint. This fingerprint will be used by an AI agent to match them to relevant job opportunities.
-
-Be honest and evidence-based. Do not inflate assessments. If the evidence is thin, say so.
-
-GitHub Profile Data:
-${JSON.stringify(githubData, null, 2)}
-
-Analyze this data and return ONLY valid JSON matching this exact structure:
-
-{
-  "primary_languages": [
-    {
-      "language": "string",
-      "proficiency_evidence": "specific evidence from repos/commits",
-      "estimated_proficiency": "beginner|intermediate|advanced|expert",
-      "lines_of_code_estimate": "low|medium|high",
-      "repo_count": 0,
-      "recency": "active|recent|older"
-    }
-  ],
-  "frameworks_detected": [
-    {
-      "name": "string",
-      "evidence_repos": ["repo names"],
-      "confidence": "high|medium|low",
-      "usage_depth": "surface|moderate|deep"
-    }
-  ],
-  "architecture_patterns": [
-    {
-      "pattern": "string",
-      "evidence": "specific repos or commits",
-      "description": "what this tells us about how they build"
-    }
-  ],
-  "code_quality_signals": {
-    "documentation_quality": "poor|fair|good|excellent",
-    "documentation_evidence": "string",
-    "test_coverage_signals": "none|minimal|moderate|strong",
-    "test_evidence": "string",
-    "commit_message_quality": "poor|fair|good|excellent",
-    "commit_evidence": "string",
-    "code_organization": "poor|fair|good|excellent",
-    "organization_evidence": "string"
-  },
-  "problem_domains": [
-    {
-      "domain": "string",
-      "evidence": "specific repos",
-      "depth": "surface|moderate|deep"
-    }
-  ],
-  "collaboration_signals": {
-    "open_source_contributions": "none|minimal|moderate|significant",
-    "contribution_evidence": "string",
-    "code_review_activity": "none|minimal|moderate|active",
-    "issue_engagement": "none|minimal|moderate|active"
-  },
-  "skill_trajectory": {
-    "direction": "improving|consistent|mixed|declining",
-    "evidence": "what in the commit history supports this",
-    "notable_recent_work": "string"
-  },
-  "standout_projects": [
-    {
-      "name": "string",
-      "url": "string",
-      "description": "what it does and why it stands out",
-      "why_notable": "specific technical reason this is impressive",
-      "technical_depth_score": 7,
-      "most_relevant_for_roles": ["role types this project demonstrates fit for"]
-    }
-  ],
-  "honest_gaps": ["specific gap with evidence"],
-  "red_flags": ["anything concerning"],
-  "summary": "2-3 sentence plain language summary",
-  "seniority_estimate": "junior|mid|senior|staff|principal",
-  "seniority_evidence": "what in the profile supports this estimate",
-  "strongest_use_case": "the type of role and company this engineer is best suited for"
-}`
-}
+import {
+  fetchAllRepos,
+  scoreAndRankRepos,
+  fetchRepoDetails,
+  analyzeRepoWithClaude,
+  synthesizeFingerprint,
+  updateOnboardingProgress
+} from '@/lib/github/ingestion'
 
 export async function POST(request: NextRequest) {
   const authHeader = request.headers.get('authorization')
-  const supabase = createAdminClient()
+  const body = await request.json()
 
-  // Allow CRON_SECRET or user session
+  let supabase: any
   let userId: string | null = null
+  let githubProfileId: string | null = null
 
+  // Auth pattern 1: CRON_SECRET (called by sync route)
   if (authHeader === `Bearer ${process.env.CRON_SECRET}`) {
-    const body = await request.json()
+    supabase = createAdminClient()
     userId = body.userId
+
+    if (!userId) {
+      return NextResponse.json({ error: 'userId required' }, { status: 400 })
+    }
+
+    // Look up github_profiles to get the profile ID
+    const { data: gp } = await supabase
+      .from('github_profiles')
+      .select('id')
+      .eq('user_id', userId)
+      .single()
+
+    if (!gp) {
+      return NextResponse.json({ error: 'GitHub profile not found' }, { status: 404 })
+    }
+
+    githubProfileId = gp.id
+
+  // Auth pattern 2: User session (called from onboarding UI)
   } else {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+    supabase = createClient()
+    const { data: { user } } = await supabase.auth.getUser()
+    if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+
+    userId = user.id
+    githubProfileId = body.githubProfileId
+
+    if (!githubProfileId) {
+      return NextResponse.json({ error: 'githubProfileId required' }, { status: 400 })
+    }
   }
 
-  if (!userId) {
-    return NextResponse.json({ error: 'userId required' }, { status: 400 })
-  }
-
+  // Fetch the GitHub profile with access token
   const { data: githubProfile } = await supabase
     .from('github_profiles')
     .select('*')
+    .eq('id', githubProfileId)
     .eq('user_id', userId)
     .single()
 
-  if (!githubProfile || !githubProfile.github_access_token) {
-    return NextResponse.json({ error: 'GitHub profile not found' }, { status: 404 })
+  if (!githubProfile?.github_access_token) {
+    return NextResponse.json({ error: 'GitHub not connected' }, { status: 400 })
   }
 
   // Update status to ingesting
   await supabase.from('github_profiles').update({
     ingestion_status: 'ingesting',
-    ingestion_started_at: new Date().toISOString(),
-  }).eq('user_id', userId)
-
-  const token = githubProfile.github_access_token
-  const username = githubProfile.github_username
-
-  const ghHeaders = {
-    Authorization: `Bearer ${token}`,
-    Accept: 'application/vnd.github.v3+json',
-    'X-GitHub-Api-Version': '2022-11-28',
-  }
+    ingestion_started_at: new Date().toISOString()
+  }).eq('id', githubProfileId)
 
   try {
-    // Fetch repos
-    const reposRes = await fetch(
-      `https://api.github.com/users/${username}/repos?sort=updated&per_page=100&type=owner`,
-      { headers: ghHeaders }
-    )
-    const allRepos: any[] = await reposRes.json()
+    // Stage 1: Discover and rank repos
+    const allRepos = await fetchAllRepos(githubProfile.github_access_token, githubProfile.github_username)
+    const rankedRepos = scoreAndRankRepos(allRepos)
+    const topRepos = rankedRepos.slice(0, 15)
 
-    if (!Array.isArray(allRepos)) {
-      throw new Error('Failed to fetch repos: ' + JSON.stringify(allRepos))
-    }
-
-    // Take top 30 by recency + stars
-    const repos = allRepos
-      .filter(r => !r.fork)
-      .sort((a, b) => {
-        const score = (r: any) => r.stargazers_count * 2 + (r.pushed_at ? 1 : 0)
-        return score(b) - score(a)
-      })
-      .slice(0, 30)
-
-    const analyzedRepos = []
-
-    for (const repo of repos) {
-      const repoData: any = {
-        name: repo.name,
-        url: repo.html_url,
-        description: repo.description || '',
-        language: repo.language,
+    // Save repo stubs
+    for (const repo of topRepos) {
+      await supabase.from('repo_analyses').upsert({
+        github_profile_id: githubProfileId,
+        user_id: userId,
+        repo_name: repo.name,
+        repo_full_name: repo.full_name,
+        repo_url: repo.html_url,
+        repo_description: repo.description,
+        primary_language: repo.language,
         stars: repo.stargazers_count,
         forks: repo.forks_count,
-        last_commit: repo.pushed_at,
-        topics: repo.topics || [],
-      }
-
-      // Fetch languages
-      try {
-        const langsRes = await fetch(repo.languages_url, { headers: ghHeaders })
-        repoData.languages = await langsRes.json()
-      } catch { repoData.languages = {} }
-
-      // Fetch recent commits
-      try {
-        const commitsRes = await fetch(
-          `https://api.github.com/repos/${username}/${repo.name}/commits?per_page=5`,
-          { headers: ghHeaders }
-        )
-        const commits = await commitsRes.json()
-        if (Array.isArray(commits)) {
-          repoData.recent_commit_messages = commits
-            .slice(0, 5)
-            .map((c: any) => c.commit?.message?.split('\n')[0])
-            .filter(Boolean)
-        }
-      } catch { repoData.recent_commit_messages = [] }
-
-      // Fetch README (truncated)
-      try {
-        const readmeRes = await fetch(
-          `https://api.github.com/repos/${username}/${repo.name}/readme`,
-          { headers: ghHeaders }
-        )
-        if (readmeRes.ok) {
-          const readmeData = await readmeRes.json()
-          if (readmeData.content) {
-            const decoded = Buffer.from(readmeData.content, 'base64').toString('utf-8')
-            repoData.readme_snippet = decoded.substring(0, 500)
-          }
-        }
-      } catch { /* no readme */ }
-
-      analyzedRepos.push(repoData)
+        is_fork: repo.fork,
+        is_private: repo.private,
+        created_at_github: repo.created_at,
+        last_pushed_at: repo.pushed_at,
+        analysis_status: 'pending'
+      }, { onConflict: 'github_profile_id,repo_full_name' })
     }
 
-    // Fetch public events for contribution signals
-    let events: any[] = []
-    try {
-      const eventsRes = await fetch(
-        `https://api.github.com/users/${username}/events/public?per_page=30`,
-        { headers: ghHeaders }
-      )
-      events = await eventsRes.json()
-      if (!Array.isArray(events)) events = []
-    } catch { events = [] }
+    // Stage 2 + 3: Fetch details and analyze in parallel batches (max 5 concurrent)
+    const batchSize = 5
+    for (let i = 0; i < topRepos.length; i += batchSize) {
+      const batch = topRepos.slice(i, i + batchSize)
+      await Promise.all(batch.map(async (repo: any) => {
+        try {
+          // Fetch raw details
+          const details = await fetchRepoDetails(
+            githubProfile.github_access_token,
+            githubProfile.github_username,
+            repo.name,
+            repo.full_name
+          )
 
-    // Fetch orgs
-    let orgs: any[] = []
-    try {
-      const orgsRes = await fetch('https://api.github.com/user/orgs', { headers: ghHeaders })
-      orgs = await orgsRes.json()
-      if (!Array.isArray(orgs)) orgs = []
-    } catch { orgs = [] }
+          // Save raw data and mark as analyzing
+          await supabase.from('repo_analyses').update({
+            readme_content: details.readme,
+            recent_commits: details.commits,
+            file_structure: details.fileStructure,
+            languages_breakdown: details.languages,
+            pull_requests_sample: details.pullRequests,
+            commit_count: details.commitCount,
+            analysis_status: 'analyzing'
+          }).eq('github_profile_id', githubProfileId)
+            .eq('repo_full_name', repo.full_name)
 
-    const githubDataForClaude = {
-      username,
-      public_repos: githubProfile.public_repos_count,
-      followers: githubProfile.followers,
-      account_created: githubProfile.account_created_at,
-      repositories: analyzedRepos,
-      recent_public_events: events.slice(0, 20).map((e: any) => ({
-        type: e.type,
-        repo: e.repo?.name,
-        created_at: e.created_at,
-      })),
-      organizations: orgs.map((o: any) => o.login),
+          // Analyze with Claude
+          const analysis = await analyzeRepoWithClaude(repo, details)
+
+          // Save analysis result
+          await supabase.from('repo_analyses').update({
+            claude_analysis: analysis,
+            analysis_status: 'complete',
+            analyzed_at: new Date().toISOString()
+          }).eq('github_profile_id', githubProfileId)
+            .eq('repo_full_name', repo.full_name)
+
+        } catch {
+          await supabase.from('repo_analyses').update({
+            analysis_status: 'failed'
+          }).eq('github_profile_id', githubProfileId)
+            .eq('repo_full_name', repo.full_name)
+        }
+      }))
     }
 
-    // Call Claude for fingerprint analysis
-    const message = await anthropic.messages.create({
-      model: 'claude-sonnet-4-20250514',
-      max_tokens: 4096,
-      messages: [{
-        role: 'user',
-        content: buildGithubAnalysisPrompt(githubDataForClaude),
-      }],
-    })
+    // Stage 4: Synthesize fingerprint from completed analyses
+    const { data: completedAnalyses } = await supabase
+      .from('repo_analyses')
+      .select('*')
+      .eq('github_profile_id', githubProfileId)
+      .eq('analysis_status', 'complete')
 
-    const rawText = message.content[0].type === 'text' ? message.content[0].text : '{}'
-    const cleaned = rawText.replace(/^```json\n?/, '').replace(/\n?```$/, '').trim()
-    const fingerprint = JSON.parse(cleaned)
+    const fingerprint = await synthesizeFingerprint(
+      githubProfile,
+      completedAnalyses || []
+    )
 
-    // Update github_profiles with fingerprint
+    // Save fingerprint — store count not array for repos_analyzed
     await supabase.from('github_profiles').update({
       technical_fingerprint: fingerprint,
-      repos_analyzed: analyzedRepos,
+      repos_analyzed: completedAnalyses?.length ?? 0,
       ingestion_status: 'complete',
       ingestion_completed_at: new Date().toISOString(),
-      last_synced_at: new Date().toISOString(),
-    }).eq('user_id', userId)
+      last_synced_at: new Date().toISOString()
+    }).eq('id', githubProfileId)
+
+    // Update onboarding progress
+    if (userId) await updateOnboardingProgress(supabase, userId, { github_ingested: true })
 
     // Create notification
     await supabase.from('notifications').insert({
       user_id: userId,
       type: 'github_sync_complete',
-      title: 'GitHub analysis complete',
-      body: 'Your technical fingerprint is ready. Your agent is now actively matching you to opportunities.',
-      data: {},
+      title: 'Your GitHub profile has been analyzed',
+      body: `Your agent analyzed ${completedAnalyses?.length || 0} repositories and built your technical fingerprint. Review it now to make sure it represents you accurately.`,
+      data: { github_profile_id: githubProfileId }
     })
 
-    return NextResponse.json({ success: true, repos_analyzed: analyzedRepos.length })
+    return NextResponse.json({
+      success: true,
+      fingerprint,
+      repos_analyzed: completedAnalyses?.length || 0
+    })
+
   } catch (error: any) {
     console.error('Ingest error:', error)
     await supabase.from('github_profiles').update({
-      ingestion_status: 'failed',
-    }).eq('user_id', userId)
-    return NextResponse.json({ error: error.message }, { status: 500 })
+      ingestion_status: 'failed'
+    }).eq('id', githubProfileId)
+
+    return NextResponse.json({ error: error.message || 'Ingestion failed' }, { status: 500 })
   }
 }

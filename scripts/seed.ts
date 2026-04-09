@@ -578,59 +578,593 @@ function buildFitReport(tier: Tier, idx: number, spec: typeof AGENT_SPECS[0]) {
 
 // ─── Candidate Profile Builder ───────────────────────────────────────────────
 
-function buildGithubFingerprint(tier: Tier, spec: typeof AGENT_SPECS[0], idx: number) {
-  const stack = spec.strong_stack
-  const username = `dev-user-${spec.company_idx}-${tier[0]}-${idx}`
+// Detect which of the 6 specialization archetypes this spec maps to
+type SpecType = 'fintech-backend' | 'fintech-fullstack' | 'devtools-staff' | 'platform' | 'healthcare-backend' | 'data-engineer'
 
-  if (tier === 'strong') {
-    return {
-      primary_languages: stack.slice(0, 3),
-      language_breakdown: Object.fromEntries(stack.map((l, i) => [l, Math.max(5, 40 - i * 8)])),
-      top_repositories: [
-        { name: `${stack[0].toLowerCase()}-service`, description: `Production-grade ${stack[0]} microservice`, stars: 80 + idx * 12, primary_language: stack[0], topics: [stack[0].toLowerCase(), 'production', 'scalable'] },
-        { name: `distributed-${stack[1]?.toLowerCase() ?? 'system'}`, description: `Distributed systems project in ${stack[1] ?? stack[0]}`, stars: 45 + idx * 8, primary_language: stack[1] ?? stack[0], topics: ['distributed', 'systems'] },
-        { name: 'personal-toolkit', description: 'Utilities and libraries', stars: 23 + idx * 3, primary_language: stack[0], topics: ['utilities'] },
-      ],
-      key_strengths: [`${stack[0]} expertise`, 'Distributed systems design', 'Production reliability'],
-      experience_signals: [`${5 + idx % 3}+ years professional experience`, 'Active open source contributor', 'Regular commit history'],
-      architectural_patterns: ['Microservices', 'Event-driven', 'API-first'],
-      recent_activity: 'Highly active — commits within last 7 days',
-      summary: `Strong ${stack[0]} and ${stack[1] ?? stack[0]} engineer with clear production experience. GitHub history shows consistent high-quality contributions to complex systems.`,
+function getSpecType(spec: typeof AGENT_SPECS[0]): SpecType {
+  if (spec.company_idx === 0 && spec.strong_stack[0] === 'Python') return 'fintech-backend'
+  if (spec.strong_stack[0] === 'React') return 'fintech-fullstack'
+  if (spec.strong_stack[0] === 'TypeScript') return 'devtools-staff'
+  if (spec.strong_stack[0] === 'Go') return 'platform'
+  if (spec.strong_stack[0] === 'Java') return 'healthcare-backend'
+  return 'data-engineer'
+}
+
+function buildGithubFingerprint(tier: Tier, spec: typeof AGENT_SPECS[0], idx: number): { fingerprint: any; repos: any[] } {
+  const specType = getSpecType(spec)
+  const v = idx % 3 // 0/1/2 variation within tier
+
+  // ── Poor tier: wrong stack, mismatched candidate ──────────────────────────
+  if (tier === 'poor') {
+    const wrongStacks: Record<SpecType, { lang: string; fw: string; repo1: string; repo2: string; desc: string }> = {
+      'fintech-backend':    { lang: 'PHP',    fw: 'Laravel', repo1: 'php-ecommerce-site', repo2: 'laravel-blog', desc: 'PHP/Laravel web developer. No Python, Go, or distributed systems experience visible in GitHub.' },
+      'fintech-fullstack':  { lang: 'Java',   fw: 'Spring',  repo1: 'spring-mvc-app', repo2: 'java-crud-api', desc: 'Java/Spring backend developer with no frontend experience. No TypeScript or React visible.' },
+      'devtools-staff':     { lang: 'Ruby',   fw: 'Rails',   repo1: 'rails-saas-app', repo2: 'ruby-scripts', desc: 'Ruby/Rails web developer. No TypeScript, Rust, or CLI tooling experience evident.' },
+      'platform':           { lang: 'Python', fw: 'Django',  repo1: 'django-web-app', repo2: 'flask-api', desc: 'Python web developer. No Go, Kubernetes, or infrastructure-as-code experience visible.' },
+      'healthcare-backend': { lang: 'PHP',    fw: 'WordPress', repo1: 'wordpress-plugin', repo2: 'php-cms', desc: 'PHP/WordPress developer. No Java, Spring Boot, or healthcare systems experience.' },
+      'data-engineer':      { lang: 'JavaScript', fw: 'React', repo1: 'react-dashboard', repo2: 'node-express-api', desc: 'JavaScript/React frontend developer. No Python data engineering or cloud pipeline experience.' },
     }
+    const ws = wrongStacks[specType]
+    const stars1 = 3 + idx
+    const stars2 = 1 + idx
+    const repos = [
+      { repo_name: ws.repo1, primary_language: ws.lang, stars: stars1, claude_analysis: { technical_depth_score: 2 + (idx % 2), what_it_does: `Standard ${ws.fw} CRUD application with basic user authentication and data management.` } },
+      { repo_name: ws.repo2, primary_language: ws.lang, stars: stars2, claude_analysis: { technical_depth_score: 2, what_it_does: `Simple ${ws.lang} scripts and utilities, mostly tutorial-level code with no production context.` } },
+    ]
+    const fingerprint = {
+      primary_languages: [
+        { language: ws.lang, estimated_proficiency: 'intermediate', proficiency_evidence: `${ws.repo1} and ${ws.repo2} show ${ws.lang} use but at CRUD application level with no production-grade patterns.`, production_evidence: false, repo_count: 2 + (idx % 3), recency: 'older' },
+        { language: ws.fw,   estimated_proficiency: 'beginner',     proficiency_evidence: `Framework usage limited to scaffolded tutorials. No evidence of custom architecture.`, production_evidence: false, repo_count: 1, recency: 'older' },
+      ],
+      frameworks_detected: [
+        { name: ws.fw, evidence_repos: [ws.repo1], confidence: 'high', usage_depth: 'surface' },
+      ],
+      code_quality_signals: {
+        documentation_quality: 'poor', documentation_evidence: `${ws.repo1}: no README beyond scaffolded template. No inline documentation found.`,
+        test_coverage_signals: 'none', test_evidence: `No test files detected in either repository.`,
+        commit_message_quality: 'poor', commit_evidence: `Commit messages limited to "update", "fix", "initial commit". No structured commit discipline.`,
+        code_organization: 'poor', organization_evidence: `Single-directory file layout in ${ws.repo1}. No modular structure.`,
+        overall_quality_score: 2 + (idx % 2),
+      },
+      skill_trajectory: {
+        direction: 'consistent',
+        evidence: `Last commit ${30 + idx * 5} days ago. Activity sporadic — averaging less than 2 commits per month over the last year.`,
+        notable_recent_work: `Minor updates to ${ws.repo2}. No new projects started in the last 6 months.`,
+      },
+      standout_projects: [],
+      collaboration_signals: {
+        open_source_contributions: 'none', contribution_evidence: 'No pull requests to external repositories found.',
+        pr_quality: 'insufficient_data', pr_evidence: 'No open source PRs to evaluate.',
+      },
+      honest_gaps: [
+        `No ${spec.strong_stack[0]} code found in any public repository.`,
+        'No distributed systems or scalable architecture patterns visible.',
+        'All projects appear to be tutorial or learning exercises, not production work.',
+        'No evidence of cloud platform usage (AWS, GCP, or Azure).',
+      ],
+      red_flags: [
+        `Primary language (${ws.lang}) is a significant mismatch with role requirements.`,
+        `Commit activity suggests part-time or hobbyist engagement rather than professional development.`,
+      ],
+      summary: ws.desc,
+      seniority_estimate: 'junior',
+      seniority_evidence: `Repositories show CRUD application development without complexity. ${1 + (idx % 2)} years implied experience from GitHub account history.`,
+      strongest_use_case: `${ws.lang} web application development at small scale. Not suited for distributed backend roles.`,
+      overall_github_strength: 2 + (idx % 2),
+      confidence_in_assessment: 'high',
+    }
+    return { fingerprint, repos }
   }
 
-  if (tier === 'medium') {
-    const partialStack = stack.slice(0, 2)
-    return {
-      primary_languages: partialStack,
-      language_breakdown: Object.fromEntries(partialStack.map((l, i) => [l, 35 - i * 10])),
-      top_repositories: [
-        { name: `${partialStack[0].toLowerCase()}-api`, description: `${partialStack[0]} REST API`, stars: 12 + idx * 4, primary_language: partialStack[0], topics: [partialStack[0].toLowerCase()] },
-        { name: 'side-project', description: 'Personal side project', stars: 5 + idx * 2, primary_language: partialStack[0], topics: ['personal'] },
+  // ── Strong and medium builds per specialization ───────────────────────────
+
+  const isStrong = tier === 'strong'
+  const yoe = isStrong ? 6 + (idx % 4) : 3 + (idx % 3)
+  const ghStrength = isStrong ? 8 + (idx % 3) : 5 + (idx % 3)
+  const qualityScore = isStrong ? 8 + (v % 2) : 5 + (v % 3)
+  const trajectory = isStrong ? (['improving', 'consistent', 'improving'] as const)[v] : (['consistent', 'mixed', 'consistent'] as const)[v]
+
+  if (specType === 'fintech-backend') {
+    // Python/Go/Kafka payments backend
+    const repos = isStrong ? [
+      { repo_name: 'payment-gateway-service', primary_language: 'Python', stars: 94 + idx * 11, claude_analysis: { technical_depth_score: 9, what_it_does: 'High-throughput payment processing microservice handling card authorization, fraud scoring, and ledger writes at 8k TPS with sub-5ms p99.' } },
+      { repo_name: 'kafka-consumer-framework', primary_language: 'Python', stars: 67 + idx * 8, claude_analysis: { technical_depth_score: 8, what_it_does: 'Reusable Kafka consumer framework with exactly-once semantics, dead-letter queuing, and Prometheus metrics. Used internally by 3 teams.' } },
+      { repo_name: 'go-rate-limiter', primary_language: 'Go', stars: 43 + idx * 6, claude_analysis: { technical_depth_score: 7, what_it_does: 'Redis-backed distributed rate limiter implemented in Go using token bucket algorithm. Deployed as a sidecar in production.' } },
+      { repo_name: 'pg-schema-migrator', primary_language: 'Python', stars: 28 + idx * 3, claude_analysis: { technical_depth_score: 7, what_it_does: 'Zero-downtime PostgreSQL migration tool using dual-write patterns. Built to handle live payment databases.' } },
+      { repo_name: 'fastapi-auth-middleware', primary_language: 'Python', stars: 19 + idx * 2, claude_analysis: { technical_depth_score: 6, what_it_does: 'Reusable FastAPI middleware for JWT validation, API key management, and request tracing.' } },
+    ] : [
+      { repo_name: 'fastapi-rest-service', primary_language: 'Python', stars: 14 + idx * 4, claude_analysis: { technical_depth_score: 5, what_it_does: 'Standard FastAPI REST service with CRUD operations, basic auth, and PostgreSQL integration.' } },
+      { repo_name: `python-task-queue-${v}`, primary_language: 'Python', stars: 7 + idx * 2, claude_analysis: { technical_depth_score: 4, what_it_does: 'Celery-based task queue for background job processing. Simple retry logic, no dead-letter handling.' } },
+      { repo_name: 'sql-query-builder', primary_language: 'Python', stars: 4 + idx, claude_analysis: { technical_depth_score: 4, what_it_does: 'Lightweight SQL query builder for Python. Covers basic SELECT/INSERT/UPDATE patterns.' } },
+    ]
+    const fingerprint = {
+      primary_languages: isStrong ? [
+        { language: 'Python', estimated_proficiency: 'expert', proficiency_evidence: `payment-gateway-service and kafka-consumer-framework show production Python at scale — async patterns, type annotations throughout, sophisticated error handling. ${yoe} years visible.`, production_evidence: true, repo_count: 12 + v, recency: 'active' },
+        { language: 'Go',     estimated_proficiency: 'advanced', proficiency_evidence: `go-rate-limiter shows idiomatic Go with goroutine-safe Redis client usage, proper context handling, and benchmarks. Not just tutorial code.`, production_evidence: true, repo_count: 4 + v, recency: 'active' },
+        { language: 'SQL',    estimated_proficiency: 'advanced', proficiency_evidence: `pg-schema-migrator contains non-trivial DDL migration logic. Commit messages reference query optimization and index tuning.`, production_evidence: true, repo_count: 3, recency: 'recent' },
+      ] : [
+        { language: 'Python', estimated_proficiency: 'intermediate', proficiency_evidence: `fastapi-rest-service shows solid Python fundamentals and FastAPI patterns, but limited evidence of high-concurrency or production-scale design.`, production_evidence: true, repo_count: 6 + v, recency: 'active' },
+        { language: 'SQL',    estimated_proficiency: 'intermediate', proficiency_evidence: `sql-query-builder covers basic patterns. No evidence of complex query optimization or large-scale migrations.`, production_evidence: false, repo_count: 2, recency: 'recent' },
       ],
-      key_strengths: [`${partialStack[0]} proficiency`, 'Web API development'],
-      experience_signals: [`${3 + idx % 3} years professional experience`],
-      architectural_patterns: ['REST APIs', 'MVC'],
-      recent_activity: 'Moderately active — commits within last 30 days',
-      summary: `Competent ${partialStack[0]} engineer with solid fundamentals. Missing some of the advanced stack experience required for this role.`,
+      frameworks_detected: isStrong ? [
+        { name: 'FastAPI',    evidence_repos: ['payment-gateway-service', 'fastapi-auth-middleware'], confidence: 'high', usage_depth: 'deep' },
+        { name: 'Kafka',      evidence_repos: ['kafka-consumer-framework', 'payment-gateway-service'], confidence: 'high', usage_depth: 'deep' },
+        { name: 'Redis',      evidence_repos: ['go-rate-limiter', 'payment-gateway-service'], confidence: 'high', usage_depth: 'moderate' },
+        { name: 'PostgreSQL', evidence_repos: ['pg-schema-migrator', 'payment-gateway-service'], confidence: 'high', usage_depth: 'deep' },
+        { name: 'Docker',     evidence_repos: ['payment-gateway-service', 'go-rate-limiter'], confidence: 'high', usage_depth: 'moderate' },
+        { name: 'GitHub Actions', evidence_repos: ['payment-gateway-service', 'kafka-consumer-framework'], confidence: 'high', usage_depth: 'moderate' },
+      ] : [
+        { name: 'FastAPI',    evidence_repos: ['fastapi-rest-service'], confidence: 'high', usage_depth: 'moderate' },
+        { name: 'Celery',     evidence_repos: [`python-task-queue-${v}`], confidence: 'high', usage_depth: 'surface' },
+        { name: 'PostgreSQL', evidence_repos: ['fastapi-rest-service'], confidence: 'medium', usage_depth: 'surface' },
+      ],
+      code_quality_signals: {
+        documentation_quality: isStrong ? 'excellent' : 'fair',
+        documentation_evidence: isStrong ? `payment-gateway-service has a detailed README with architecture diagram, deployment guide, and runbook. fastapi-auth-middleware has full API reference docs.` : `fastapi-rest-service has basic README but no architecture docs. Inline comments sparse.`,
+        test_coverage_signals: isStrong ? 'strong' : 'minimal',
+        test_evidence: isStrong ? `kafka-consumer-framework has 94% coverage via pytest. Includes integration tests using TestContainers for Kafka and PostgreSQL.` : `fastapi-rest-service has basic unit tests covering happy paths only. No integration tests.`,
+        commit_message_quality: isStrong ? 'excellent' : 'fair',
+        commit_evidence: isStrong ? `Consistent conventional commits format: "feat(payments): add idempotency key deduplication layer". PR descriptions include motivation and rollout plan.` : `Mostly descriptive but inconsistent. Mix of "fix bug" and more detailed messages.`,
+        code_organization: isStrong ? 'excellent' : 'good',
+        organization_evidence: isStrong ? `payment-gateway-service uses clean layered architecture (handlers/services/repositories). Domain boundaries well-defined. Dependency injection throughout.` : `fastapi-rest-service follows standard MVC structure. Some logic leaks between layers.`,
+        overall_quality_score: qualityScore,
+      },
+      skill_trajectory: {
+        direction: trajectory,
+        evidence: isStrong ? `Commit frequency increasing over last 12 months. Recently added Go projects alongside Python, indicating stack expansion. payment-gateway-service shows significantly more architectural sophistication than earlier repos.` : `Steady commit history over last ${8 + v} months. No major new projects started recently. Skills appear stable rather than actively growing.`,
+        notable_recent_work: isStrong ? `Building go-rate-limiter as a standalone library — shows shift toward infrastructure-grade components beyond application code.` : `Incremental improvements to fastapi-rest-service. Added basic authentication in last quarter.`,
+      },
+      standout_projects: isStrong ? [
+        { name: 'payment-gateway-service', url: `https://github.com/seed-user-${idx}/payment-gateway-service`, description: 'High-throughput Python payment processing service handling card authorization and ledger writes at 8k TPS with sub-5ms p99 latency.', why_notable: 'Demonstrates production-grade distributed systems thinking: idempotency keys, dual-write patterns for zero-downtime migration, circuit breakers, and Kafka-based event sourcing. Not tutorial-level code.', technical_depth_score: 9, most_relevant_for_roles: ['senior-backend', 'staff-engineer', 'payments-engineer'] },
+        { name: 'kafka-consumer-framework', url: `https://github.com/seed-user-${idx}/kafka-consumer-framework`, description: 'Reusable Python framework for Kafka consumers with exactly-once semantics, dead-letter queuing, and built-in Prometheus metrics.', why_notable: 'Designed as an internal library used by multiple teams — shows ability to build shared infrastructure, not just application code. Exactly-once semantic implementation is non-trivial.', technical_depth_score: 8, most_relevant_for_roles: ['senior-backend', 'platform-engineer', 'data-engineer'] },
+      ] : [],
+      collaboration_signals: {
+        open_source_contributions: isStrong ? 'moderate' : 'minimal',
+        contribution_evidence: isStrong ? `${3 + v} merged PRs to FastAPI and SQLAlchemy repositories. PRs include bug fixes and documentation improvements.` : `1 merged PR to a small Python utility library. No regular contribution pattern.`,
+        pr_quality: isStrong ? 'excellent' : 'fair',
+        pr_evidence: isStrong ? `PR descriptions in own repos include problem statement, solution approach, and test coverage notes. Follows conventional commit format.` : `PR descriptions are brief. Test coverage mentioned but inconsistently.`,
+      },
+      honest_gaps: isStrong ? [
+        v === 0 ? 'No Rust or systems-level programming visible — all work is application-layer Python and Go.' : 'Limited frontend experience — purely backend and infrastructure code.',
+        'ML/AI integrations not visible in GitHub — fraud detection referenced in commit messages but no ML code committed.',
+      ] : [
+        `No Go repositories — ${spec.strong_stack[1]} experience not verifiable from GitHub alone.`,
+        'No event streaming or Kafka usage visible. Distributed systems knowledge appears theoretical.',
+        'Test coverage limited. Integration tests absent from all repositories.',
+        'No infrastructure-as-code or deployment configuration visible.',
+      ],
+      red_flags: isStrong ? [] : [
+        `Missing ${spec.strong_stack[1]} evidence — role requires ${spec.strong_stack[1]} proficiency that is not verifiable from GitHub.`,
+        v === 0 ? 'All repositories appear to be personal/side projects with no evidence of production deployment.' : 'Limited commit volume suggests part-time engagement.',
+      ],
+      summary: isStrong
+        ? `Strong Python/Go backend engineer with clear evidence of production-grade distributed systems work. payment-gateway-service alone demonstrates Kafka, Redis, PostgreSQL, and zero-downtime migration patterns at real scale. ${yoe} years of active GitHub history shows consistent professional-grade development.`
+        : `Competent Python developer with solid REST API fundamentals. Demonstrates good FastAPI knowledge but missing the distributed systems and Kafka experience the role requires. ${yoe} years experience but limited evidence of high-scale production work.`,
+      seniority_estimate: isStrong ? (idx < 2 ? 'staff' : 'senior') : 'mid',
+      seniority_evidence: isStrong ? `payment-gateway-service architecture complexity and kafka-consumer-framework library design both indicate senior+ thinking. ${yoe} years verified through account history.` : `Good individual contributor skills but no evidence of technical leadership or system design at scale.`,
+      strongest_use_case: isStrong ? 'Senior or Staff backend engineer at a fintech or high-scale startup. Best fit for roles that need Python/Go combined with Kafka and PostgreSQL at production scale.' : 'Mid-level backend engineer at a growth-stage company. Would need ramp time on distributed systems.',
+      overall_github_strength: ghStrength,
+      confidence_in_assessment: 'high',
     }
+    return { fingerprint, repos }
   }
 
-  // poor
-  const wrongStacks = [['Java', 'Spring'], ['PHP', 'Laravel'], ['.NET', 'C#'], ['Ruby', 'Rails'], ['Vue', 'JavaScript']]
-  const wrongStack = wrongStacks[idx % wrongStacks.length]
-  return {
-    primary_languages: wrongStack,
-    language_breakdown: { [wrongStack[0]]: 70, [wrongStack[1]]: 20, HTML: 10 },
-    top_repositories: [
-      { name: `${wrongStack[0].toLowerCase()}-app`, description: `${wrongStack[0]} application`, stars: 3 + idx, primary_language: wrongStack[0], topics: [wrongStack[0].toLowerCase()] },
+  if (specType === 'fintech-fullstack') {
+    // React/TypeScript/Go fullstack
+    const repos = isStrong ? [
+      { repo_name: 'fintech-dashboard-ui', primary_language: 'TypeScript', stars: 88 + idx * 10, claude_analysis: { technical_depth_score: 9, what_it_does: 'Real-time financial dashboard in React with WebSocket-driven portfolio updates, complex D3 charting, and optimistic UI patterns. Handles 500+ concurrent data streams.' } },
+      { repo_name: 'go-financial-api',     primary_language: 'Go',         stars: 56 + idx * 7,  claude_analysis: { technical_depth_score: 8, what_it_does: 'Go REST API with JWT auth, rate limiting, and PostgreSQL. Powers the fintech dashboard frontend. Includes OpenAPI spec and generated TypeScript client.' } },
+      { repo_name: 'react-data-grid',      primary_language: 'TypeScript', stars: 71 + idx * 9,  claude_analysis: { technical_depth_score: 7, what_it_does: 'Virtualized data grid component for large financial datasets. Handles 100k+ row rendering with column sorting, filtering, and inline editing.' } },
+      { repo_name: 'ts-api-codegen',       primary_language: 'TypeScript', stars: 34 + idx * 4,  claude_analysis: { technical_depth_score: 7, what_it_does: 'CLI tool that generates type-safe TypeScript API clients from OpenAPI specs. Eliminates handwritten fetch wrappers.' } },
+    ] : [
+      { repo_name: 'react-dashboard',      primary_language: 'TypeScript', stars: 18 + idx * 3, claude_analysis: { technical_depth_score: 5, what_it_does: 'Standard React admin dashboard with charts, data tables, and CRUD forms. Uses Recharts for visualization.' } },
+      { repo_name: 'express-rest-api',     primary_language: 'TypeScript', stars: 9 + idx * 2,  claude_analysis: { technical_depth_score: 4, what_it_does: 'Node.js/Express REST API with TypeScript. Basic CRUD with JWT auth. No advanced patterns.' } },
+      { repo_name: `portfolio-site-${v}`,  primary_language: 'TypeScript', stars: 3 + idx,       claude_analysis: { technical_depth_score: 3, what_it_does: 'Personal portfolio site built with Next.js and Tailwind CSS.' } },
+    ]
+    const fingerprint = {
+      primary_languages: isStrong ? [
+        { language: 'TypeScript', estimated_proficiency: 'expert', proficiency_evidence: `fintech-dashboard-ui and react-data-grid show advanced TypeScript: conditional types, mapped types, discriminated unions. Not just type annotations — genuine type-level programming.`, production_evidence: true, repo_count: 9 + v, recency: 'active' },
+        { language: 'Go',         estimated_proficiency: 'advanced', proficiency_evidence: `go-financial-api shows idiomatic Go: interface-driven design, context propagation, graceful shutdown. Clean separation of concerns across packages.`, production_evidence: true, repo_count: 3 + v, recency: 'active' },
+        { language: 'CSS',        estimated_proficiency: 'advanced', proficiency_evidence: `fintech-dashboard-ui shows sophisticated responsive layouts and animation. Custom Tailwind configuration with design token system.`, production_evidence: true, repo_count: 4, recency: 'active' },
+      ] : [
+        { language: 'TypeScript', estimated_proficiency: 'intermediate', proficiency_evidence: `react-dashboard uses TypeScript throughout with interfaces and basic generics. Type system usage is conventional rather than advanced.`, production_evidence: true, repo_count: 5 + v, recency: 'active' },
+        { language: 'JavaScript', estimated_proficiency: 'intermediate', proficiency_evidence: `Earlier repos use plain JS. TypeScript adoption visible in more recent work.`, production_evidence: false, repo_count: 3, recency: 'recent' },
+      ],
+      frameworks_detected: isStrong ? [
+        { name: 'React',          evidence_repos: ['fintech-dashboard-ui', 'react-data-grid'], confidence: 'high', usage_depth: 'deep' },
+        { name: 'Next.js',        evidence_repos: ['fintech-dashboard-ui'], confidence: 'high', usage_depth: 'deep' },
+        { name: 'Go',             evidence_repos: ['go-financial-api'], confidence: 'high', usage_depth: 'deep' },
+        { name: 'D3.js',          evidence_repos: ['fintech-dashboard-ui'], confidence: 'high', usage_depth: 'deep' },
+        { name: 'PostgreSQL',     evidence_repos: ['go-financial-api'], confidence: 'high', usage_depth: 'moderate' },
+        { name: 'WebSockets',     evidence_repos: ['fintech-dashboard-ui'], confidence: 'high', usage_depth: 'moderate' },
+      ] : [
+        { name: 'React',          evidence_repos: ['react-dashboard'], confidence: 'high', usage_depth: 'moderate' },
+        { name: 'Node.js/Express', evidence_repos: ['express-rest-api'], confidence: 'high', usage_depth: 'surface' },
+        { name: 'Recharts',       evidence_repos: ['react-dashboard'], confidence: 'high', usage_depth: 'surface' },
+      ],
+      code_quality_signals: {
+        documentation_quality: isStrong ? 'good' : 'fair',
+        documentation_evidence: isStrong ? `react-data-grid has Storybook stories for all component variants plus a detailed props reference. go-financial-api has OpenAPI spec committed alongside code.` : `react-dashboard has a basic README. No component documentation or Storybook.`,
+        test_coverage_signals: isStrong ? 'moderate' : 'minimal',
+        test_evidence: isStrong ? `react-data-grid has Jest + React Testing Library tests for core interactions. go-financial-api has ~70% coverage with table-driven tests.` : `express-rest-api has basic unit tests for utility functions only. Frontend untested.`,
+        commit_message_quality: isStrong ? 'good' : 'fair',
+        commit_evidence: isStrong ? `Conventional commits used consistently. PRs have clear scope descriptions and reference issues.` : `Mix of detailed and vague commits. No consistent format.`,
+        code_organization: isStrong ? 'excellent' : 'good',
+        organization_evidence: isStrong ? `fintech-dashboard-ui uses feature-based folder structure with co-located tests. Custom hooks abstract all data-fetching complexity.` : `react-dashboard uses standard Create React App structure with some custom organization.`,
+        overall_quality_score: qualityScore,
+      },
+      skill_trajectory: {
+        direction: trajectory,
+        evidence: isStrong ? `ts-api-codegen (created 4 months ago) shows new interest in developer tooling — expanding beyond application code. Commit velocity has increased 40% over last 6 months.` : `Steady work on react-dashboard over last year. No major new projects or stack exploration visible.`,
+        notable_recent_work: isStrong ? `ts-api-codegen — building TypeScript code generation tooling. Suggests interest in developer infrastructure beyond product code.` : `Adding chart components to react-dashboard. Incremental feature additions.`,
+      },
+      standout_projects: isStrong ? [
+        { name: 'fintech-dashboard-ui', url: `https://github.com/seed-user-${idx}/fintech-dashboard-ui`, description: 'Real-time financial dashboard handling 500+ concurrent WebSocket data streams with complex D3 charting and optimistic UI patterns.', why_notable: 'Real-time state synchronization at this complexity is genuinely hard. The combination of WebSocket management, optimistic updates, and D3 in TypeScript shows senior-level frontend architecture skills.', technical_depth_score: 9, most_relevant_for_roles: ['senior-fullstack', 'frontend-engineer', 'fintech-engineer'] },
+        { name: 'react-data-grid', url: `https://github.com/seed-user-${idx}/react-data-grid`, description: 'Virtualized data grid component handling 100k+ row rendering with sorting, filtering, and inline editing.', why_notable: 'Virtualization at this scale requires deep React performance knowledge. 71+ stars suggests external adoption, validating production quality.', technical_depth_score: 7, most_relevant_for_roles: ['senior-frontend', 'senior-fullstack', 'ui-engineer'] },
+      ] : [],
+      collaboration_signals: {
+        open_source_contributions: isStrong ? 'moderate' : 'none',
+        contribution_evidence: isStrong ? `${2 + v} merged PRs to React Query and Recharts. Contributions focus on TypeScript type improvements.` : 'No pull requests to external repositories found.',
+        pr_quality: isStrong ? 'good' : 'insufficient_data',
+        pr_evidence: isStrong ? `Own repository PRs include screenshots of UI changes and performance benchmark comparisons.` : 'No external PRs to evaluate.',
+      },
+      honest_gaps: isStrong ? [
+        'No mobile (React Native) work visible.',
+        v === 0 ? 'Limited backend infrastructure work — strong on application layer but not systems design.' : 'No GraphQL usage visible despite being common in financial dashboards.',
+      ] : [
+        'No Go repositories — backend experience is Node.js only. Role requires Go.',
+        'No evidence of high-scale real-time features (WebSockets, streaming).',
+        'TypeScript usage is basic — no advanced type-level programming.',
+      ],
+      red_flags: isStrong ? [] : [
+        'No Go experience visible. Role requires Go backend proficiency.',
+        v === 0 ? 'Frontend-only background with limited full-stack evidence.' : 'Limited production deployment evidence.',
+      ],
+      summary: isStrong
+        ? `Strong full-stack engineer with exceptional React/TypeScript depth and solid Go backend skills. fintech-dashboard-ui demonstrates real-time data handling complexity that goes well beyond typical dashboard work. ${yoe} years of consistent GitHub activity with increasing sophistication.`
+        : `Solid React/TypeScript frontend developer with basic Node.js backend skills. Missing the Go proficiency and real-time data handling experience the role requires. Good fundamentals but limited production complexity.`,
+      seniority_estimate: isStrong ? 'senior' : 'mid',
+      seniority_evidence: isStrong ? `react-data-grid library with 71+ external stars indicates senior-level quality. go-financial-api shows full ownership of backend design.` : `Good individual contributor skills. No technical leadership or library authorship.`,
+      strongest_use_case: isStrong ? 'Senior full-stack engineer at a fintech or data-intensive product company. Strong in React with real-time data requirements.' : 'Mid-level frontend or full-stack role. Would need support on backend architecture.',
+      overall_github_strength: ghStrength,
+      confidence_in_assessment: 'high',
+    }
+    return { fingerprint, repos }
+  }
+
+  if (specType === 'devtools-staff') {
+    // TypeScript/Rust SDK and CLI developer
+    const repos = isStrong ? [
+      { repo_name: 'ts-plugin-system', primary_language: 'TypeScript', stars: 312 + idx * 18, claude_analysis: { technical_depth_score: 10, what_it_does: 'Open-source TypeScript plugin system with hot reloading, sandboxed execution, and a typed hook API. Used by 3,000+ projects on npm.' } },
+      { repo_name: 'rust-wasm-parser',  primary_language: 'Rust',       stars: 189 + idx * 14, claude_analysis: { technical_depth_score: 9,  what_it_does: 'Zero-copy WASM binary parser in Rust compiled to WebAssembly. 40x faster than the equivalent JS implementation.' } },
+      { repo_name: 'type-safe-rpc',     primary_language: 'TypeScript', stars: 147 + idx * 11, claude_analysis: { technical_depth_score: 8,  what_it_does: 'End-to-end type-safe RPC framework for TypeScript using inferred types from server definitions — no code generation step.' } },
+      { repo_name: 'cli-builder-rs',    primary_language: 'Rust',       stars: 96 + idx * 9,   claude_analysis: { technical_depth_score: 8,  what_it_does: 'Ergonomic Rust CLI builder framework with automatic shell completion, progress bars, and structured error reporting.' } },
+      { repo_name: 'node-module-graph', primary_language: 'TypeScript', stars: 54 + idx * 6,   claude_analysis: { technical_depth_score: 7,  what_it_does: 'TypeScript module dependency graph analyzer. Used for dead code elimination and bundle optimization.' } },
+    ] : [
+      { repo_name: 'typescript-sdk-starter', primary_language: 'TypeScript', stars: 22 + idx * 4, claude_analysis: { technical_depth_score: 5, what_it_does: 'Opinionated TypeScript SDK starter template with ESM/CJS dual output, type declarations, and CI setup.' } },
+      { repo_name: `node-cli-tool-${v}`,      primary_language: 'TypeScript', stars: 11 + idx * 2, claude_analysis: { technical_depth_score: 4, what_it_does: 'Node.js CLI tool built with Commander.js. Automates local development workflow tasks.' } },
+      { repo_name: 'rust-learning',           primary_language: 'Rust',       stars: 5 + idx,       claude_analysis: { technical_depth_score: 3, what_it_does: 'Learning exercises in Rust — Rustlings solutions and small utility programs. Not production code.' } },
+    ]
+    const fingerprint = {
+      primary_languages: isStrong ? [
+        { language: 'TypeScript', estimated_proficiency: 'expert', proficiency_evidence: `ts-plugin-system demonstrates advanced TypeScript: conditional types with infer, template literal types, mapped types for plugin API surface. type-safe-rpc shows genuine type-level programming not just annotations.`, production_evidence: true, repo_count: 11 + v, recency: 'active' },
+        { language: 'Rust',       estimated_proficiency: 'advanced', proficiency_evidence: `rust-wasm-parser and cli-builder-rs show production Rust: lifetime management, custom allocators in wasm-parser, zero-copy design. Not LeetCode Rust — real systems work.`, production_evidence: true, repo_count: 5 + v, recency: 'active' },
+        { language: 'JavaScript', estimated_proficiency: 'expert', proficiency_evidence: `Underlying JavaScript/Node.js depth visible in ts-plugin-system sandbox implementation and module-graph V8 integration.`, production_evidence: true, repo_count: 3, recency: 'recent' },
+      ] : [
+        { language: 'TypeScript', estimated_proficiency: 'intermediate', proficiency_evidence: `typescript-sdk-starter shows good TypeScript structure but conventional usage. No advanced type-level programming visible.`, production_evidence: false, repo_count: 6 + v, recency: 'active' },
+        { language: 'Rust',       estimated_proficiency: 'beginner', proficiency_evidence: `rust-learning is explicitly a learning repository — Rustlings exercises. No production Rust found. Role requires shipped Rust code.`, production_evidence: false, repo_count: 1, recency: 'recent' },
+      ],
+      frameworks_detected: isStrong ? [
+        { name: 'Node.js',   evidence_repos: ['ts-plugin-system', 'type-safe-rpc', 'node-module-graph'], confidence: 'high', usage_depth: 'deep' },
+        { name: 'tokio',     evidence_repos: ['cli-builder-rs', 'rust-wasm-parser'], confidence: 'high', usage_depth: 'deep' },
+        { name: 'WebAssembly', evidence_repos: ['rust-wasm-parser'], confidence: 'high', usage_depth: 'deep' },
+        { name: 'esbuild',   evidence_repos: ['node-module-graph'], confidence: 'medium', usage_depth: 'moderate' },
+        { name: 'GitHub Actions', evidence_repos: ['ts-plugin-system', 'cli-builder-rs'], confidence: 'high', usage_depth: 'moderate' },
+      ] : [
+        { name: 'Node.js',   evidence_repos: ['typescript-sdk-starter', `node-cli-tool-${v}`], confidence: 'high', usage_depth: 'moderate' },
+        { name: 'Commander.js', evidence_repos: [`node-cli-tool-${v}`], confidence: 'high', usage_depth: 'surface' },
+      ],
+      code_quality_signals: {
+        documentation_quality: isStrong ? 'excellent' : 'good',
+        documentation_evidence: isStrong ? `ts-plugin-system has a full documentation site generated from JSDoc. type-safe-rpc README includes interactive TypeScript Playground links demonstrating type inference.` : `typescript-sdk-starter has a well-structured README with API reference. Missing advanced usage examples.`,
+        test_coverage_signals: isStrong ? 'strong' : 'minimal',
+        test_evidence: isStrong ? `ts-plugin-system has 96% coverage with both unit and integration tests across Node versions (16, 18, 20). cli-builder-rs uses property-based testing with proptest.` : `typescript-sdk-starter has basic unit tests. CLI tool is untested.`,
+        commit_message_quality: isStrong ? 'excellent' : 'good',
+        commit_evidence: isStrong ? `All commits follow conventional commits with scoped messages. PRs link to RFC documents. ts-plugin-system has a CHANGELOG automatically generated from commits.` : `Descriptive commit messages but no consistent format. No automated changelog.`,
+        code_organization: isStrong ? 'excellent' : 'good',
+        organization_evidence: isStrong ? `ts-plugin-system uses monorepo structure (pnpm workspaces) with clear package boundaries. Rust code uses workspace members with shared utilities factored into crates.` : `typescript-sdk-starter follows standard TypeScript library structure. Sensible but not sophisticated.`,
+        overall_quality_score: qualityScore,
+      },
+      skill_trajectory: {
+        direction: trajectory,
+        evidence: isStrong ? `rust-wasm-parser (6 months old) shows deliberate expansion into Rust/WASM territory. Commit complexity and repo star counts have increased consistently over 3 years.` : `typescript-sdk-starter shows some maturation from earlier JavaScript work. rust-learning suggests Rust exploration but not yet production-ready.`,
+        notable_recent_work: isStrong ? `rust-wasm-parser — pushing into WASM compilation and zero-copy binary parsing. This is frontier work for a TypeScript-primarily developer.` : `Working through Rust learning materials. Has not yet shipped anything in Rust.`,
+      },
+      standout_projects: isStrong ? [
+        { name: 'ts-plugin-system', url: `https://github.com/seed-user-${idx}/ts-plugin-system`, description: 'Open-source TypeScript plugin system with hot reloading and sandboxed execution used by 3,000+ npm packages.', why_notable: '312+ stars and 3k+ dependents proves production quality. Sandboxed hot-reloading is technically non-trivial. This is the kind of work that builds a reputation in the JS/TS ecosystem.', technical_depth_score: 10, most_relevant_for_roles: ['staff-engineer', 'sdk-engineer', 'developer-tools'] },
+        { name: 'rust-wasm-parser', url: `https://github.com/seed-user-${idx}/rust-wasm-parser`, description: 'Zero-copy WASM binary parser in Rust, compiled to WebAssembly, 40x faster than equivalent JS implementation.', why_notable: 'Demonstrates genuine Rust expertise (lifetimes, allocators, zero-copy) and WASM compilation pipeline knowledge. 189+ stars shows community recognition.', technical_depth_score: 9, most_relevant_for_roles: ['staff-engineer', 'systems-engineer', 'developer-tools'] },
+      ] : [],
+      collaboration_signals: {
+        open_source_contributions: isStrong ? 'significant' : 'minimal',
+        contribution_evidence: isStrong ? `${8 + v} merged PRs to TypeScript compiler (microsoft/TypeScript), ${3 + v} to deno. Known contributor to the broader TypeScript tooling ecosystem.` : `1 merged PR to a small TypeScript utility library. No pattern of OSS engagement.`,
+        pr_quality: isStrong ? 'excellent' : 'fair',
+        pr_evidence: isStrong ? `PRs to TypeScript repo include detailed technical rationale, edge case analysis, and updated specification text. High engineering bar.` : 'Limited external PRs to evaluate.',
+      },
+      honest_gaps: isStrong ? [
+        'No distributed systems or backend service architecture visible — work is entirely tooling and libraries.',
+        v === 0 ? 'Limited Go code despite it being commonly paired with Rust in systems work.' : 'No gRPC usage despite being common in SDK tooling.',
+      ] : [
+        'Rust experience is learning-phase only. Role requires shipped production Rust code.',
+        'No open source presence of note. Role specifically values OSS contributions.',
+        'SDK design experience limited to starter templates, not shipped SDKs.',
+        'CLI tooling experience is script-level, not framework-level.',
+      ],
+      red_flags: isStrong ? [] : [
+        'Rust experience is explicitly learning-phase. Role requires production Rust — this is a hard requirement.',
+        'No meaningful open source contributions. Staff-level role at devtools company values ecosystem presence.',
+      ],
+      summary: isStrong
+        ? `Exceptional TypeScript/Rust engineer with a strong open-source presence. ts-plugin-system (312 stars, 3k+ dependents) demonstrates production SDK design skills at a level that influences the ecosystem. Rust work (rust-wasm-parser) shows genuine systems-level thinking beyond web application development. ${yoe} years of increasing sophistication.`
+        : `Solid TypeScript developer exploring Rust but not yet production-ready in it. Good SDK packaging instincts but missing the Rust depth and open-source track record the Staff role requires.`,
+      seniority_estimate: isStrong ? (idx < 2 ? 'principal' : 'staff') : 'senior',
+      seniority_evidence: isStrong ? `ts-plugin-system ecosystem impact (3k+ dependents) and TypeScript compiler contributions indicate principal/staff level. Multiple repos with 100+ stars show consistent quality over time.` : `Individual contributor skills are solid but no evidence of the ecosystem impact or technical leadership expected at Staff level.`,
+      strongest_use_case: isStrong ? 'Staff or Principal engineer at a developer tools company building SDKs, CLIs, or language tooling.' : 'Senior TypeScript engineer at a product company. Would need Rust skill development to qualify for developer tools staff roles.',
+      overall_github_strength: ghStrength,
+      confidence_in_assessment: 'high',
+    }
+    return { fingerprint, repos }
+  }
+
+  if (specType === 'platform') {
+    // Go/Kubernetes platform engineer
+    const repos = isStrong ? [
+      { repo_name: 'k8s-build-operator',   primary_language: 'Go', stars: 127 + idx * 14, claude_analysis: { technical_depth_score: 9, what_it_does: 'Kubernetes operator for managing ephemeral build worker pods. Implements custom scheduling, resource quotas, and preemption logic using controller-runtime.' } },
+      { repo_name: 'argocd-build-plugin',  primary_language: 'Go', stars: 84 + idx * 9,   claude_analysis: { technical_depth_score: 8, what_it_does: 'ArgoCD config management plugin that integrates build artifact provenance into GitOps deployment pipelines.' } },
+      { repo_name: 'terraform-k8s-modules', primary_language: 'HCL', stars: 61 + idx * 7,  claude_analysis: { technical_depth_score: 7, what_it_does: 'Production-ready Terraform modules for Kubernetes cluster provisioning on GCP and AWS with opinionated networking and RBAC defaults.' } },
+      { repo_name: 'prometheus-build-exporter', primary_language: 'Go', stars: 38 + idx * 5, claude_analysis: { technical_depth_score: 7, what_it_does: 'Custom Prometheus exporter that surfaces build queue depth, worker utilization, and cache hit rates as metrics.' } },
+    ] : [
+      { repo_name: 'helm-chart-templates', primary_language: 'YAML', stars: 16 + idx * 3, claude_analysis: { technical_depth_score: 4, what_it_does: 'Collection of Helm chart templates for common Kubernetes workload patterns (Deployment, StatefulSet, CronJob) with sensible defaults.' } },
+      { repo_name: `go-k8s-client-demo-${v}`, primary_language: 'Go', stars: 8 + idx * 2, claude_analysis: { technical_depth_score: 4, what_it_does: 'Demo application using the Kubernetes client-go library to list and watch resources. Learning-oriented code.' } },
+      { repo_name: 'terraform-aws-snippets', primary_language: 'HCL', stars: 5 + idx,     claude_analysis: { technical_depth_score: 3, what_it_does: 'Personal collection of Terraform AWS resource snippets for common patterns. No module structure.' } },
+    ]
+    const fingerprint = {
+      primary_languages: isStrong ? [
+        { language: 'Go',      estimated_proficiency: 'expert', proficiency_evidence: `k8s-build-operator and argocd-build-plugin show expert Go: controller-runtime reconciliation loop patterns, informer caches, admission webhooks, proper use of context/cancellation. This is not tutorial Go.`, production_evidence: true, repo_count: 8 + v, recency: 'active' },
+        { language: 'HCL',     estimated_proficiency: 'advanced', proficiency_evidence: `terraform-k8s-modules shows module design patterns, for_each abstractions, and output chaining that indicates production Terraform experience.`, production_evidence: true, repo_count: 3 + v, recency: 'active' },
+        { language: 'Python',  estimated_proficiency: 'intermediate', proficiency_evidence: `Several utility scripts for operational tasks. Not primary language but functional.`, production_evidence: false, repo_count: 2, recency: 'recent' },
+      ] : [
+        { language: 'Go',   estimated_proficiency: 'intermediate', proficiency_evidence: `go-k8s-client-demo shows basic client-go usage — listing resources, basic watchers. No controller-runtime or operator patterns visible.`, production_evidence: false, repo_count: 3 + v, recency: 'active' },
+        { language: 'YAML', estimated_proficiency: 'intermediate', proficiency_evidence: `helm-chart-templates shows solid Helm knowledge but templating is conventional. No custom admission webhooks or operators.`, production_evidence: false, repo_count: 4, recency: 'recent' },
+      ],
+      frameworks_detected: isStrong ? [
+        { name: 'controller-runtime', evidence_repos: ['k8s-build-operator'], confidence: 'high', usage_depth: 'deep' },
+        { name: 'client-go',    evidence_repos: ['k8s-build-operator', 'argocd-build-plugin'], confidence: 'high', usage_depth: 'deep' },
+        { name: 'Terraform',    evidence_repos: ['terraform-k8s-modules'], confidence: 'high', usage_depth: 'deep' },
+        { name: 'ArgoCD',       evidence_repos: ['argocd-build-plugin'], confidence: 'high', usage_depth: 'deep' },
+        { name: 'Prometheus',   evidence_repos: ['prometheus-build-exporter'], confidence: 'high', usage_depth: 'moderate' },
+        { name: 'Helm',         evidence_repos: ['k8s-build-operator'], confidence: 'high', usage_depth: 'moderate' },
+      ] : [
+        { name: 'Helm',         evidence_repos: ['helm-chart-templates'], confidence: 'high', usage_depth: 'moderate' },
+        { name: 'client-go',    evidence_repos: [`go-k8s-client-demo-${v}`], confidence: 'high', usage_depth: 'surface' },
+        { name: 'Terraform',    evidence_repos: ['terraform-aws-snippets'], confidence: 'medium', usage_depth: 'surface' },
+      ],
+      code_quality_signals: {
+        documentation_quality: isStrong ? 'excellent' : 'fair',
+        documentation_evidence: isStrong ? `k8s-build-operator has full operator installation guide, CRD reference, and troubleshooting runbook. terraform-k8s-modules includes input/output variable documentation and architecture diagram.` : `helm-chart-templates has README but no architecture context. Individual chart documentation missing.`,
+        test_coverage_signals: isStrong ? 'strong' : 'minimal',
+        test_evidence: isStrong ? `k8s-build-operator uses envtest for controller integration tests with fake Kubernetes API server. prometheus-build-exporter has metric correctness unit tests.` : `go-k8s-client-demo has no tests. helm-chart-templates has basic lint checks only.`,
+        commit_message_quality: isStrong ? 'good' : 'fair',
+        commit_evidence: isStrong ? `Commit messages reference Kubernetes issues and include rollback considerations for operator changes. Clear distinction between feature, fix, and refactor commits.` : `Mix of clear and vague commit messages. No consistent format.`,
+        code_organization: isStrong ? 'excellent' : 'fair',
+        organization_evidence: isStrong ? `k8s-build-operator follows kubebuilder project layout with controllers, webhooks, and API types cleanly separated. Internal packages clearly scoped.` : `go-k8s-client-demo is a flat main package structure. No evidence of production-grade organization.`,
+        overall_quality_score: qualityScore,
+      },
+      skill_trajectory: {
+        direction: trajectory,
+        evidence: isStrong ? `argocd-build-plugin (3 months old) shows expansion from platform operations into GitOps integration tooling. prometheus-build-exporter shows metrics-first thinking — observability is built in, not added later.` : `Steady accumulation of Helm/Terraform snippets but no architectural progression. go-k8s-client-demo has not been updated in ${3 + v} months.`,
+        notable_recent_work: isStrong ? `argocd-build-plugin — integrating build provenance into GitOps workflows. This is cutting-edge platform engineering territory.` : `Adding more Helm chart templates. No new architectural work.`,
+      },
+      standout_projects: isStrong ? [
+        { name: 'k8s-build-operator', url: `https://github.com/seed-user-${idx}/k8s-build-operator`, description: 'Kubernetes operator managing ephemeral build worker pods with custom scheduling, resource quotas, and preemption logic.', why_notable: 'Writing a Kubernetes operator with custom scheduling logic is a high bar — requires deep controller-runtime, admission webhook, and informer cache knowledge. 127+ stars indicates external adoption. This is the "has written a controller" signal the role requires.', technical_depth_score: 9, most_relevant_for_roles: ['platform-engineer', 'staff-engineer', 'kubernetes-engineer'] },
+        { name: 'prometheus-build-exporter', url: `https://github.com/seed-user-${idx}/prometheus-build-exporter`, description: 'Custom Prometheus exporter surfacing build queue depth, worker utilization, and cache hit rates.', why_notable: 'Shows observability-first platform thinking — instrumenting internal systems for operational insight rather than just building the system.', technical_depth_score: 7, most_relevant_for_roles: ['platform-engineer', 'sre', 'devops-engineer'] },
+      ] : [],
+      collaboration_signals: {
+        open_source_contributions: isStrong ? 'moderate' : 'minimal',
+        contribution_evidence: isStrong ? `${3 + v} merged PRs to kubernetes-sigs/controller-runtime. ${2 + v} PRs to ArgoCD community. Active in Kubernetes Slack.` : `1 PR to helm/charts for a documentation fix. No ongoing engagement.`,
+        pr_quality: isStrong ? 'excellent' : 'insufficient_data',
+        pr_evidence: isStrong ? `PRs to controller-runtime include test cases demonstrating the edge case being fixed. High-quality contributions that pass maintainer review.` : `Insufficient external PRs to evaluate quality.`,
+      },
+      honest_gaps: isStrong ? [
+        'No application-layer service development visible — purely infrastructure and tooling.',
+        v === 0 ? 'No eBPF work despite it becoming central to modern platform engineering.' : 'Limited multi-cloud evidence — work appears GCP-primary.',
+      ] : [
+        'No Kubernetes operator development visible. Role requires controller-runtime expertise, not just kubectl/Helm usage.',
+        'Terraform experience appears to be snippet collection, not production module design.',
+        'Go proficiency is basic — no evidence of idiomatic patterns or production-scale code.',
+        'No CI/CD pipeline ownership or ArgoCD experience visible.',
+      ],
+      red_flags: isStrong ? [] : [
+        'go-k8s-client-demo is learning-level code, not production operator development. Role specifically requires written operators.',
+        v === 0 ? 'Kubernetes experience appears administrative (Helm charts) rather than engineering (controllers, operators).' : 'Limited Go depth — role requires Go proficiency for operator development.',
+      ],
+      summary: isStrong
+        ? `Expert Kubernetes platform engineer with clear evidence of operator development, not just cluster administration. k8s-build-operator (127+ stars) demonstrates controller-runtime depth that distinguishes a platform software engineer from a DevOps admin. ${yoe} years of Go/Kubernetes work visible in GitHub history.`
+        : `Kubernetes administrator with basic Go skills. Helm chart templates and client-go demos show familiarity with the ecosystem but not the software engineering depth to build operators or controllers. Missing the key signal the role requires.`,
+      seniority_estimate: isStrong ? 'senior' : 'mid',
+      seniority_evidence: isStrong ? `k8s-build-operator complexity (custom scheduling, preemption, admission webhooks) indicates senior-level platform engineering. ${yoe} years verified.` : `Good understanding of Kubernetes patterns but no evidence of designing or owning production operators.`,
+      strongest_use_case: isStrong ? 'Senior platform engineer at a company running significant Kubernetes infrastructure who needs to build custom operators and controllers, not just operate clusters.' : 'DevOps or platform role focused on Helm and Terraform configuration management.',
+      overall_github_strength: ghStrength,
+      confidence_in_assessment: 'high',
+    }
+    return { fingerprint, repos }
+  }
+
+  if (specType === 'healthcare-backend') {
+    // Java/Spring/HIPAA backend
+    const repos = isStrong ? [
+      { repo_name: 'fhir-r4-api-server',     primary_language: 'Java',   stars: 74 + idx * 9, claude_analysis: { technical_depth_score: 9, what_it_does: 'FHIR R4-compliant REST API server built on Spring Boot with full audit logging, role-based access control, and SMART on FHIR authorization.' } },
+      { repo_name: 'hipaa-audit-spring-boot', primary_language: 'Java',   stars: 52 + idx * 7, claude_analysis: { technical_depth_score: 8, what_it_does: 'Spring Boot starter library for HIPAA-compliant audit logging. Intercepts PHI access automatically via AOP and writes to tamper-evident audit trail.' } },
+      { repo_name: 'ehr-kafka-connector',     primary_language: 'Java',   stars: 38 + idx * 5, claude_analysis: { technical_depth_score: 7, what_it_does: 'Kafka Connect connector for streaming HL7 v2 messages from EHR systems. Includes a schema transformer that normalizes to FHIR R4 format.' } },
+      { repo_name: 'clinical-data-testkit',   primary_language: 'Java',   stars: 29 + idx * 4, claude_analysis: { technical_depth_score: 7, what_it_does: 'Test utilities for FHIR-based Java services: synthetic PHI generators, FHIR resource validators, and TestContainers setup for clinical databases.' } },
+    ] : [
+      { repo_name: 'spring-boot-crud-api',  primary_language: 'Java', stars: 12 + idx * 2, claude_analysis: { technical_depth_score: 4, what_it_does: 'Standard Spring Boot CRUD API with JPA, basic JWT authentication, and Swagger documentation.' } },
+      { repo_name: `java-rest-service-${v}`, primary_language: 'Java', stars: 6 + idx,       claude_analysis: { technical_depth_score: 4, what_it_does: 'Java REST service following standard MVC patterns. No domain-specific complexity.' } },
+      { repo_name: 'junit5-samples',         primary_language: 'Java', stars: 3 + idx,       claude_analysis: { technical_depth_score: 3, what_it_does: 'JUnit 5 test examples covering common patterns. Reference code rather than production service.' } },
+    ]
+    const fingerprint = {
+      primary_languages: isStrong ? [
+        { language: 'Java',   estimated_proficiency: 'expert', proficiency_evidence: `fhir-r4-api-server and hipaa-audit-spring-boot show expert Java: Spring Security OAuth2, AOP interceptors, JPA entity graphs, custom validators. Complex domain — not generic CRUD.`, production_evidence: true, repo_count: 10 + v, recency: 'active' },
+        { language: 'SQL',    estimated_proficiency: 'advanced', proficiency_evidence: `fhir-r4-api-server commit history includes non-trivial PostgreSQL query optimization and partitioned table DDL. PHI handling visible in migration comments.`, production_evidence: true, repo_count: 3, recency: 'active' },
+        { language: 'Python', estimated_proficiency: 'intermediate', proficiency_evidence: `Several Python utility scripts for data pipeline tasks. Not primary language but functional.`, production_evidence: false, repo_count: 2, recency: 'recent' },
+      ] : [
+        { language: 'Java', estimated_proficiency: 'intermediate', proficiency_evidence: `spring-boot-crud-api and java-rest-service show solid Java/Spring fundamentals. Standard MVC patterns with JPA. No domain complexity or advanced Spring features.`, production_evidence: true, repo_count: 5 + v, recency: 'active' },
+        { language: 'SQL',  estimated_proficiency: 'beginner', proficiency_evidence: `Basic JPQL queries visible. No raw SQL optimization or complex schema design.`, production_evidence: false, repo_count: 1, recency: 'older' },
+      ],
+      frameworks_detected: isStrong ? [
+        { name: 'Spring Boot',     evidence_repos: ['fhir-r4-api-server', 'hipaa-audit-spring-boot', 'ehr-kafka-connector'], confidence: 'high', usage_depth: 'deep' },
+        { name: 'Spring Security', evidence_repos: ['fhir-r4-api-server', 'hipaa-audit-spring-boot'], confidence: 'high', usage_depth: 'deep' },
+        { name: 'Kafka Connect',   evidence_repos: ['ehr-kafka-connector'], confidence: 'high', usage_depth: 'deep' },
+        { name: 'TestContainers',  evidence_repos: ['clinical-data-testkit', 'fhir-r4-api-server'], confidence: 'high', usage_depth: 'deep' },
+        { name: 'JPA/Hibernate',   evidence_repos: ['fhir-r4-api-server'], confidence: 'high', usage_depth: 'moderate' },
+        { name: 'Kafka',           evidence_repos: ['ehr-kafka-connector'], confidence: 'high', usage_depth: 'moderate' },
+      ] : [
+        { name: 'Spring Boot', evidence_repos: ['spring-boot-crud-api', `java-rest-service-${v}`], confidence: 'high', usage_depth: 'moderate' },
+        { name: 'JPA',         evidence_repos: ['spring-boot-crud-api'], confidence: 'high', usage_depth: 'surface' },
+        { name: 'JUnit 5',     evidence_repos: ['junit5-samples'], confidence: 'high', usage_depth: 'surface' },
+      ],
+      code_quality_signals: {
+        documentation_quality: isStrong ? 'excellent' : 'fair',
+        documentation_evidence: isStrong ? `fhir-r4-api-server has full OpenAPI 3.0 spec, FHIR conformance statement, and a HIPAA compliance guide. hipaa-audit-spring-boot has integration guide and threat model.` : `spring-boot-crud-api has Swagger UI but no architectural documentation. Inline JavaDoc sparse.`,
+        test_coverage_signals: isStrong ? 'strong' : 'minimal',
+        test_evidence: isStrong ? `fhir-r4-api-server has 87% coverage using JUnit 5 and TestContainers. clinical-data-testkit provides reusable synthetic PHI for test isolation. Integration tests are first-class, not afterthoughts.` : `junit5-samples shows knowledge of testing patterns but spring-boot-crud-api has only basic unit tests. No integration tests visible.`,
+        commit_message_quality: isStrong ? 'excellent' : 'good',
+        commit_evidence: isStrong ? `Commits in fhir-r4-api-server reference JIRA tickets, include HIPAA section citations where relevant, and distinguish regulatory from feature changes.` : `Descriptive but generic commit messages. No domain context or regulatory references.`,
+        code_organization: isStrong ? 'excellent' : 'good',
+        organization_evidence: isStrong ? `fhir-r4-api-server uses hexagonal architecture with clear domain/application/infrastructure layers. PHI handling is isolated to dedicated packages with access tracking.` : `spring-boot-crud-api follows standard layered MVC. No domain modeling beyond simple entities.`,
+        overall_quality_score: qualityScore,
+      },
+      skill_trajectory: {
+        direction: trajectory,
+        evidence: isStrong ? `ehr-kafka-connector (4 months old) shows expansion into event-driven EHR integration — a more complex domain than REST APIs alone. fhir-r4-api-server commit history shows deepening FHIR spec knowledge over 2+ years.` : `steady Spring Boot work over ${12 + v} months but no evidence of new capabilities or domain expansion.`,
+        notable_recent_work: isStrong ? `ehr-kafka-connector — streaming HL7 messages and normalizing to FHIR format. Shows engagement with real healthcare data standards, not just web development patterns.` : `Adding Swagger documentation to existing API endpoints. Maintenance-mode activity.`,
+      },
+      standout_projects: isStrong ? [
+        { name: 'fhir-r4-api-server', url: `https://github.com/seed-user-${idx}/fhir-r4-api-server`, description: 'FHIR R4-compliant REST API server with full audit logging, RBAC, and SMART on FHIR authorization.', why_notable: 'FHIR R4 compliance is non-trivial — the spec is 3,500+ pages and most implementations are partial. SMART on FHIR OAuth2 flow + PHI audit trail shows genuine healthcare domain expertise, not just Java skills.', technical_depth_score: 9, most_relevant_for_roles: ['healthcare-backend', 'fhir-developer', 'senior-backend'] },
+        { name: 'hipaa-audit-spring-boot', url: `https://github.com/seed-user-${idx}/hipaa-audit-spring-boot`, description: 'Spring Boot starter that auto-instruments PHI access with HIPAA-compliant audit logging via AOP.', why_notable: 'Building a reusable library rather than in-app audit code shows architectural maturity. AOP-based instrumentation is the right pattern for compliance cross-cutting concerns.', technical_depth_score: 8, most_relevant_for_roles: ['healthcare-backend', 'java-engineer', 'platform-engineer'] },
+      ] : [],
+      collaboration_signals: {
+        open_source_contributions: isStrong ? 'moderate' : 'none',
+        contribution_evidence: isStrong ? `${2 + v} merged PRs to hapifhir/hapi-fhir (the main Java FHIR library). Contributions include bug fixes in FHIR R4 resource serialization.` : 'No pull requests to external repositories found.',
+        pr_quality: isStrong ? 'good' : 'insufficient_data',
+        pr_evidence: isStrong ? `hapi-fhir PRs include failing test cases demonstrating the bug before the fix. Well-received by maintainers.` : 'No external PRs to evaluate.',
+      },
+      honest_gaps: isStrong ? [
+        'No Python data pipeline experience visible — clinical analytics work would require Python/SQL.',
+        v === 0 ? 'Limited frontend experience — purely backend Java development.' : 'No microservices mesh tooling (Istio, Consul) visible despite working in a microservices context.',
+      ] : [
+        'No FHIR or healthcare domain-specific code visible. Role requires healthcare API experience.',
+        'Spring Security, Kafka, and advanced Spring features not evident in repositories.',
+        'Test coverage is minimal. Role requires strong testing discipline (CareConnect requires 80%+ coverage).',
+        'No regulated industry compliance patterns visible (audit logging, PHI access control).',
+      ],
+      red_flags: isStrong ? [] : [
+        `No FHIR or healthcare API experience — this is a domain-specific role where the learning curve matters.`,
+        v === 0 ? 'Test coverage appears minimal, which is a significant gap for a regulated healthcare environment.' : 'Limited Spring Security and compliance pattern experience.',
+      ],
+      summary: isStrong
+        ? `Strong Java/Spring healthcare backend engineer with rare FHIR domain expertise. fhir-r4-api-server demonstrates both technical depth (Spring Security, AOP, TestContainers) and domain knowledge (FHIR R4 spec, SMART on FHIR, PHI handling). hipaa-audit-spring-boot shows library design thinking. ${yoe} years of healthcare-focused development visible.`
+        : `Competent Java/Spring developer with solid fundamentals but no healthcare-specific experience. Good general backend skills but missing FHIR knowledge, compliance patterns, and the testing discipline required in regulated environments.`,
+      seniority_estimate: isStrong ? 'senior' : 'mid',
+      seniority_evidence: isStrong ? `fhir-r4-api-server architectural complexity and hipaa-audit-spring-boot library design indicate senior Java engineering. FHIR domain expertise validates healthcare context.` : `Individual contributor-level Java skills. No evidence of technical leadership or complex domain design.`,
+      strongest_use_case: isStrong ? 'Senior Java backend engineer at a healthcare or regulated industry company. Best fit for FHIR API development and PHI-handling systems.' : 'Mid-level Java backend role at a non-regulated company where healthcare domain is not required.',
+      overall_github_strength: ghStrength,
+      confidence_in_assessment: 'high',
+    }
+    return { fingerprint, repos }
+  }
+
+  // specType === 'data-engineer': Python/AWS/Spark/dbt
+  const repos = isStrong ? [
+    { repo_name: 'clinical-etl-pipeline',     primary_language: 'Python', stars: 68 + idx * 8, claude_analysis: { technical_depth_score: 9, what_it_does: 'PHI-safe EHR data pipeline using PySpark on AWS Glue. Implements k-anonymity for aggregate analytics while preserving individual record privacy.' } },
+    { repo_name: 'dbt-healthcare-models',      primary_language: 'SQL',    stars: 51 + idx * 6, claude_analysis: { technical_depth_score: 8, what_it_does: 'dbt model library for clinical data warehouse covering patient encounters, medication records, and lab results with documented lineage.' } },
+    { repo_name: 'spark-phi-anonymizer',       primary_language: 'Python', stars: 44 + idx * 5, claude_analysis: { technical_depth_score: 8, what_it_does: 'PySpark library for PHI field detection and anonymization using NLP entity recognition. Handles free-text clinical notes.' } },
+    { repo_name: 'data-quality-framework',     primary_language: 'Python', stars: 33 + idx * 4, claude_analysis: { technical_depth_score: 7, what_it_does: 'Great Expectations-based data quality framework with custom clinical validators for FHIR resources and HL7 message schemas.' } },
+    { repo_name: 'redshift-optimizer',         primary_language: 'Python', stars: 22 + idx * 3, claude_analysis: { technical_depth_score: 6, what_it_does: 'CLI tool that analyzes Redshift query plans and suggests distribution keys, sort keys, and missing statistics.' } },
+  ] : [
+    { repo_name: 'pandas-etl-scripts',    primary_language: 'Python', stars: 9 + idx * 2, claude_analysis: { technical_depth_score: 4, what_it_does: 'Collection of pandas ETL scripts for transforming CSV and JSON data into normalized database tables.' } },
+    { repo_name: `dbt-project-demo-${v}`, primary_language: 'SQL',    stars: 5 + idx,       claude_analysis: { technical_depth_score: 4, what_it_does: 'Introductory dbt project with basic staging and mart models. Tutorial-level complexity.' } },
+    { repo_name: 'aws-s3-utils',          primary_language: 'Python', stars: 3 + idx,       claude_analysis: { technical_depth_score: 3, what_it_does: 'Wrapper utilities for common AWS S3 operations (upload, download, list, copy). No advanced patterns.' } },
+  ]
+  const fingerprint = {
+    primary_languages: isStrong ? [
+      { language: 'Python', estimated_proficiency: 'expert', proficiency_evidence: `clinical-etl-pipeline and spark-phi-anonymizer show expert Python: PySpark DataFrame API, custom UDFs, NLP pipeline integration, AWS Glue job scripts. Not script-level Python — production data engineering.`, production_evidence: true, repo_count: 11 + v, recency: 'active' },
+      { language: 'SQL',    estimated_proficiency: 'expert', proficiency_evidence: `dbt-healthcare-models contains non-trivial window functions, recursive CTEs for patient encounter hierarchies, and FHIR-aligned data modeling. Redshift-optimizer shows query plan analysis depth.`, production_evidence: true, repo_count: 5 + v, recency: 'active' },
+      { language: 'Scala',  estimated_proficiency: 'intermediate', proficiency_evidence: `Several Spark job files written in Scala alongside Python equivalents. Indicates comfort with JVM Spark when needed.`, production_evidence: false, repo_count: 2, recency: 'recent' },
+    ] : [
+      { language: 'Python', estimated_proficiency: 'intermediate', proficiency_evidence: `pandas-etl-scripts shows solid Python and pandas fundamentals. aws-s3-utils shows basic boto3 usage. No PySpark or distributed processing visible.`, production_evidence: false, repo_count: 5 + v, recency: 'active' },
+      { language: 'SQL',    estimated_proficiency: 'intermediate', proficiency_evidence: `dbt-project-demo shows basic dbt patterns (staging, marts). SQL quality is tutorial-level — no window functions or complex joins.`, production_evidence: false, repo_count: 2, recency: 'recent' },
     ],
-    key_strengths: [`${wrongStack[0]} development`],
-    experience_signals: [`${1 + idx % 3} years experience`],
-    architectural_patterns: ['MVC', 'CRUD'],
-    recent_activity: 'Sporadic — last commit over 60 days ago',
-    summary: `${wrongStack[0]} developer with limited relevance to this ${spec.strong_stack[0]}-focused role. Significant ramp time would be required.`,
+    frameworks_detected: isStrong ? [
+      { name: 'PySpark',           evidence_repos: ['clinical-etl-pipeline', 'spark-phi-anonymizer'], confidence: 'high', usage_depth: 'deep' },
+      { name: 'dbt',               evidence_repos: ['dbt-healthcare-models'], confidence: 'high', usage_depth: 'deep' },
+      { name: 'AWS Glue',          evidence_repos: ['clinical-etl-pipeline'], confidence: 'high', usage_depth: 'deep' },
+      { name: 'Great Expectations', evidence_repos: ['data-quality-framework'], confidence: 'high', usage_depth: 'deep' },
+      { name: 'Amazon Redshift',   evidence_repos: ['dbt-healthcare-models', 'redshift-optimizer'], confidence: 'high', usage_depth: 'deep' },
+      { name: 'spaCy (NLP)',       evidence_repos: ['spark-phi-anonymizer'], confidence: 'medium', usage_depth: 'moderate' },
+    ] : [
+      { name: 'pandas',  evidence_repos: ['pandas-etl-scripts'], confidence: 'high', usage_depth: 'moderate' },
+      { name: 'dbt',     evidence_repos: [`dbt-project-demo-${v}`], confidence: 'high', usage_depth: 'surface' },
+      { name: 'boto3',   evidence_repos: ['aws-s3-utils'], confidence: 'high', usage_depth: 'surface' },
+    ],
+    code_quality_signals: {
+      documentation_quality: isStrong ? 'excellent' : 'fair',
+      documentation_evidence: isStrong ? `clinical-etl-pipeline has full data lineage documentation, PHI handling guide, and HIPAA compliance notes. dbt-healthcare-models has column-level descriptions for every model with business context.` : `pandas-etl-scripts has comments in code but no architectural documentation. dbt-project-demo lacks model descriptions.`,
+      test_coverage_signals: isStrong ? 'strong' : 'minimal',
+      test_evidence: isStrong ? `data-quality-framework has pytest suite testing all custom validators. dbt-healthcare-models has dbt tests on all primary keys, referential integrity, and FHIR code set membership.` : `aws-s3-utils has basic unit tests for utility functions. ETL scripts are untested.`,
+      commit_message_quality: isStrong ? 'good' : 'fair',
+      commit_evidence: isStrong ? `dbt-healthcare-models commits reference clinical data model decisions and FHIR mapping rationale. clinical-etl-pipeline commits note PHI handling changes explicitly.` : `Generic commit messages like "update scripts" and "fix query". No domain context.`,
+      code_organization: isStrong ? 'excellent' : 'fair',
+      organization_evidence: isStrong ? `clinical-etl-pipeline uses job/transform/validate layer separation. dbt-healthcare-models follows mature layered modeling (staging, intermediate, marts) with exposure files.` : `pandas-etl-scripts is a flat collection of scripts with no consistent structure.`,
+      overall_quality_score: qualityScore,
+    },
+    skill_trajectory: {
+      direction: trajectory,
+      evidence: isStrong ? `spark-phi-anonymizer (5 months old) shows expansion into NLP and unstructured clinical text processing — a sophisticated new domain beyond structured pipeline work. Commit frequency consistent.` : `Steady work on pandas ETL scripts. No PySpark, Spark, or cloud-native pipeline experience emerging.`,
+      notable_recent_work: isStrong ? `spark-phi-anonymizer — applying NLP entity recognition to free-text clinical notes for PHI detection. Rare intersection of data engineering and clinical informatics.` : `Adding more CSV transformation functions to pandas-etl-scripts. No architectural progression.`,
+    },
+    standout_projects: isStrong ? [
+      { name: 'clinical-etl-pipeline', url: `https://github.com/seed-user-${idx}/clinical-etl-pipeline`, description: 'PHI-safe EHR data pipeline on AWS Glue/PySpark implementing k-anonymity for clinical analytics while preserving individual privacy.', why_notable: 'k-anonymity implementation for clinical data is genuinely hard — requires deep understanding of both privacy theory and clinical data structures. This is the intersection of data engineering and healthcare compliance that makes a data engineer valuable in this space.', technical_depth_score: 9, most_relevant_for_roles: ['senior-data-engineer', 'healthcare-data', 'platform-data-engineer'] },
+      { name: 'dbt-healthcare-models', url: `https://github.com/seed-user-${idx}/dbt-healthcare-models`, description: 'dbt model library for clinical data warehouse with full lineage documentation covering patient encounters, medications, and lab results.', why_notable: '51+ stars on a specialized dbt library suggests external adoption by other healthcare data teams. Column-level documentation with business context is rare and signals strong data modeling discipline.', technical_depth_score: 8, most_relevant_for_roles: ['data-engineer', 'analytics-engineer', 'healthcare-data'] },
+    ] : [],
+    collaboration_signals: {
+      open_source_contributions: isStrong ? 'moderate' : 'none',
+      contribution_evidence: isStrong ? `${2 + v} merged PRs to dbt-labs/dbt-core for healthcare-related data type handling. ${1 + v} PRs to great-expectations/great_expectations.` : 'No pull requests to external repositories found.',
+      pr_quality: isStrong ? 'good' : 'insufficient_data',
+      pr_evidence: isStrong ? `dbt-core PRs include data lineage test cases and edge case documentation. Accepted by maintainers without revision.` : 'No external PRs to evaluate.',
+    },
+    honest_gaps: isStrong ? [
+      'No streaming/real-time pipeline work visible — all work is batch-oriented (Glue, Spark).',
+      v === 0 ? 'No Kafka or Kinesis stream processing despite being common in healthcare event pipelines.' : 'No ML engineering or feature store work visible.',
+    ] : [
+      'No PySpark or cloud-native pipeline experience visible. Role requires AWS Glue and PySpark proficiency.',
+      'dbt usage is tutorial-level. Production dbt model design requires more sophistication.',
+      'No PHI data handling or healthcare-specific pipeline patterns visible.',
+      'AWS S3 wrapper shows boto3 familiarity but no Glue, Redshift, or EMR experience.',
+    ],
+    red_flags: isStrong ? [] : [
+      'No PySpark or distributed processing — role requires AWS Glue/Spark. pandas-only profile is a significant gap.',
+      v === 0 ? 'Clinical data experience entirely absent. Role requires comfort with PHI and healthcare data standards.' : 'dbt usage is introductory. Production healthcare dbt project would be a significant leap.',
+    ],
+    summary: isStrong
+      ? `Strong Python/SQL data engineer with deep PySpark and dbt experience in a healthcare context. clinical-etl-pipeline demonstrates PHI-safe data engineering at a level of sophistication (k-anonymity, NLP-based PHI detection) that is genuinely rare. ${yoe} years of active healthcare data engineering visible.`
+      : `Competent Python data engineer with pandas and basic dbt knowledge but missing the PySpark, AWS Glue, and healthcare-specific experience the role requires. Good data engineering foundations but not yet production-ready for clinical data pipelines.`,
+    seniority_estimate: isStrong ? 'senior' : 'mid',
+    seniority_evidence: isStrong ? `clinical-etl-pipeline complexity and data-quality-framework library design both indicate senior data engineering. Healthcare domain specificity adds valuable differentiation.` : `Solid data engineering fundamentals but limited production pipeline complexity or domain expertise.`,
+    strongest_use_case: isStrong ? 'Senior data engineer at a healthcare or regulated data company. Best fit for clinical data warehouse design and PHI-safe analytics pipelines.' : 'Mid-level data engineer at a non-regulated company. Would need significant ramp-up for clinical data roles.',
+    overall_github_strength: ghStrength,
+    confidence_in_assessment: 'high',
   }
+  return { fingerprint, repos }
 }
 
 function buildCandidateProfile(tier: Tier, spec: typeof AGENT_SPECS[0], idx: number, userId: string) {
@@ -1072,7 +1606,7 @@ async function seed() {
         }
 
         const profile = buildCandidateProfile(tier, spec, i, userId)
-        const fingerprint = buildGithubFingerprint(tier, spec, i)
+        const { fingerprint, repos: reposList } = buildGithubFingerprint(tier, spec, i)
         const fitReport = buildFitReport(tier, i, spec)
         const scores = computeScores(tier, i, spec)
         const statuses = matchStatusFor(tier, tierIdx)
@@ -1095,7 +1629,7 @@ async function seed() {
           account_created_at: new Date(Date.now() - (3 + i % 4) * 365 * 24 * 60 * 60 * 1000).toISOString(),
           last_active_at: new Date(Date.now() - (tier === 'strong' ? 2 : tier === 'medium' ? 14 : 60) * 24 * 60 * 60 * 1000).toISOString(),
           technical_fingerprint: fingerprint,
-          repos_analyzed: tier === 'strong' ? 20 : tier === 'medium' ? 8 : 3,
+          repos_analyzed: reposList,
           ingestion_status: 'complete',
           ingestion_completed_at: new Date().toISOString(),
           last_synced_at: new Date().toISOString(),

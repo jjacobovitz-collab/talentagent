@@ -12,8 +12,14 @@ interface Profile {
   role: 'candidate' | 'recruiter'
 }
 
+interface LinkedInStatus {
+  parse_status: string | null
+  consistency_score: number | null
+}
+
 interface SidebarProps {
   profile: Profile | null
+  linkedinStatus?: LinkedInStatus | null
 }
 
 const candidateNav = [
@@ -21,6 +27,7 @@ const candidateNav = [
   { href: '/dashboard/profile', label: 'My Profile', icon: '👤' },
   { href: '/dashboard/opportunities', label: 'Opportunities', icon: '🎯' },
   { href: '/dashboard/github', label: 'GitHub', icon: '🐙' },
+  { href: '/dashboard/linkedin', label: 'LinkedIn', icon: '🔗' },
   { href: '/dashboard/agent', label: 'Agent Settings', icon: '⚙️' },
   { href: '/dashboard/roles', label: 'Browse Roles', icon: '📋' },
 ]
@@ -29,11 +36,12 @@ const recruiterNav = [
   { href: '/dashboard', label: 'Overview', icon: '◈' },
   { href: '/dashboard/companies', label: 'Companies', icon: '🏢' },
   { href: '/dashboard/agents', label: 'Buyer Agents', icon: '🤖' },
+  { href: '/dashboard/integrations', label: 'Integrations', icon: '🔌' },
   { href: '/dashboard/matches', label: 'Match Queue', icon: '🎯' },
   { href: '/dashboard/roles', label: 'Roles', icon: '📋' },
 ]
 
-export default function Sidebar({ profile }: SidebarProps) {
+export default function Sidebar({ profile, linkedinStatus }: SidebarProps) {
   const pathname = usePathname()
   const router = useRouter()
 
@@ -61,6 +69,28 @@ export default function Sidebar({ profile }: SidebarProps) {
       <nav className="flex-1 p-4 space-y-1">
         {nav.map((item) => {
           const active = pathname === item.href || (item.href !== '/dashboard' && pathname.startsWith(item.href))
+          const isLinkedIn = item.href === '/dashboard/linkedin'
+
+          // LinkedIn status dot
+          let linkedInDot: React.ReactNode = null
+          let linkedInBadge: React.ReactNode = null
+          if (isLinkedIn && profile?.role === 'candidate') {
+            if (!linkedinStatus || !linkedinStatus.parse_status) {
+              linkedInDot = <span className="w-2 h-2 rounded-full bg-slate-400 ml-auto shrink-0" />
+            } else if (linkedinStatus.parse_status === 'parsing') {
+              linkedInDot = <span className="w-2 h-2 rounded-full bg-[#F59E0B] ml-auto shrink-0 animate-pulse" />
+            } else if (linkedinStatus.parse_status === 'complete') {
+              linkedInDot = <span className="w-2 h-2 rounded-full bg-[#10B981] ml-auto shrink-0" />
+              if (linkedinStatus.consistency_score != null) {
+                linkedInBadge = (
+                  <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-[#10B981]/20 text-[#10B981] shrink-0">
+                    {linkedinStatus.consistency_score}
+                  </span>
+                )
+              }
+            }
+          }
+
           return (
             <Link
               key={item.href}
@@ -72,7 +102,9 @@ export default function Sidebar({ profile }: SidebarProps) {
               }`}
             >
               <span>{item.icon}</span>
-              {item.label}
+              <span className="flex-1">{item.label}</span>
+              {linkedInBadge}
+              {linkedInDot}
             </Link>
           )
         })}

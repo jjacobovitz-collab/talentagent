@@ -41,16 +41,70 @@ Comp band: $${buyerAgent.comp_band_min || '?'} - $${buyerAgent.comp_band_max || 
 You have full context about both the company and this specific role.`
 }
 
-function buildCandidateAgentSystemPrompt(profile: any, githubFingerprint: any): string {
+function buildCandidateAgentPromptWithGitHub(profile: any, githubFingerprint: any, repoAnalyses: any[], crossReference?: any): string {
+  const standoutProjects = githubFingerprint?.standout_projects || []
+  const topRepos = repoAnalyses
+    ?.filter(r => r.claude_analysis?.technical_depth_score >= 7)
+    ?.slice(0, 5) || []
+
   return `You are the career agent for ${profile?.profiles?.full_name || 'this candidate'}.
 
-Your job is to represent this candidate's interests honestly and specifically.
-You advocate for them -- but you are honest about gaps. A bad match wastes their time.
+IMPORTANT WEIGHTING INSTRUCTION:
+GitHub evidence is your primary source of truth. Self-reported claims that are NOT supported by GitHub evidence should be treated as unverified. When a requirement asks about a skill, always check if there is GitHub evidence before citing self-reported claims.
 
-GITHUB TECHNICAL FINGERPRINT (what they have actually built):
-${JSON.stringify(githubFingerprint || {}, null, 2)}
+GITHUB TECHNICAL FINGERPRINT:
+Overall GitHub Strength: ${githubFingerprint?.overall_github_strength}/10
+Seniority Estimate: ${githubFingerprint?.seniority_estimate}
+Seniority Evidence: ${githubFingerprint?.seniority_evidence}
+Strongest Use Case: ${githubFingerprint?.strongest_use_case}
+Confidence in Assessment: ${githubFingerprint?.confidence_in_assessment}
 
-SELF-REPORTED PROFILE:
+Primary Languages (with evidence):
+${githubFingerprint?.primary_languages?.map((l: any) =>
+  `- ${l.language}: ${l.estimated_proficiency} -- Evidence: ${l.proficiency_evidence}`
+).join('\n') || 'None identified'}
+
+Frameworks Detected:
+${githubFingerprint?.frameworks_detected?.map((f: any) =>
+  `- ${f.name}: ${f.usage_depth} usage, ${f.confidence} confidence -- Repos: ${f.evidence_repos?.join(', ')}`
+).join('\n') || 'None identified'}
+
+Code Quality:
+- Documentation: ${githubFingerprint?.code_quality_signals?.documentation_quality}
+- Testing: ${githubFingerprint?.code_quality_signals?.test_coverage_signals}
+- Organization: ${githubFingerprint?.code_quality_signals?.code_organization}
+- Commit discipline: ${githubFingerprint?.code_quality_signals?.commit_message_quality}
+- Overall quality score: ${githubFingerprint?.code_quality_signals?.overall_quality_score}/10
+
+Skill Trajectory: ${githubFingerprint?.skill_trajectory?.direction}
+Evidence: ${githubFingerprint?.skill_trajectory?.evidence}
+Recent Work: ${githubFingerprint?.skill_trajectory?.notable_recent_work}
+
+STANDOUT PROJECTS (use these as evidence when answering qualification questions):
+${standoutProjects.map((p: any) => `
+Project: ${p.name}
+What it does: ${p.description}
+Why notable: ${p.why_notable}
+Technical depth: ${p.technical_depth_score}/10
+Best demonstrates fit for: ${p.most_relevant_for_roles?.join(', ')}
+`).join('\n') || 'None identified'}
+
+${topRepos.length > 0 ? `HIGH DEPTH REPOS (score 7+):
+${topRepos.map((r: any) => `- ${r.repo_name}: ${r.claude_analysis?.what_it_does} (depth ${r.claude_analysis?.technical_depth_score}/10)`).join('\n')}
+` : ''}
+
+HONEST GAPS (be transparent about these when relevant):
+${githubFingerprint?.honest_gaps?.join('\n') || 'None identified'}
+
+CANDIDATE SUMMARY:
+${githubFingerprint?.summary}
+
+CANDIDATE CORRECTIONS AND CONTEXT:
+${githubFingerprint?.candidate_corrections?.map((c: any) =>
+  `- ${c.field_path}: "${c.context}"`
+).join('\n') || 'No corrections provided'}
+
+SELF-REPORTED PROFILE (supplement GitHub evidence, do not substitute for it):
 Current title: ${profile?.current_title || profile?.title || 'Not specified'}
 Years of experience: ${profile?.years_of_experience || profile?.years_experience || 'Not specified'}
 Primary languages: ${(profile?.primary_languages || profile?.languages || []).join(', ')}
@@ -68,7 +122,24 @@ Hard dealbreakers: ${profile?.hard_dealbreakers || profile?.dealbreakers || 'Non
 What they are optimizing for: ${profile?.next_role_priorities || profile?.optimizing_for || 'Not specified'}
 
 When answering questions, always cite specific evidence. Prefer GitHub evidence over self-reported claims.
-If GitHub evidence contradicts self-reported claims, flag it honestly.`
+If GitHub evidence contradicts self-reported claims, flag it honestly.
+
+${crossReference ? `LINKEDIN CROSS-REFERENCE ANALYSIS:
+Consistency Score: ${crossReference.consistency_score}/100
+Consistency Rating: ${crossReference.consistency_rating}
+Summary: ${crossReference.cross_reference_summary}
+
+Corroboration Highlights (use these as strong evidence):
+${crossReference.corroboration_highlights?.join('\n') || 'None'}
+
+Consistency Flags (be transparent about these):
+${crossReference.consistency_flags?.join('\n') || 'None'}
+
+Red Flags (disclose if directly relevant to a requirement):
+${crossReference.red_flags?.join('\n') || 'None'}
+
+IMPORTANT: When answering questions about the candidate's experience, prioritize claims that are corroborated by both LinkedIn AND GitHub. Flag claims that are only on LinkedIn without GitHub evidence as "LinkedIn-reported, not yet GitHub-verified." Never hide red flags -- transparency builds trust.
+` : 'LinkedIn cross-reference not yet available for this candidate.'}`
 }
 
 function parseJSON(text: string, fallback: any): any {
@@ -94,6 +165,8 @@ export async function POST(request: NextRequest) {
     githubRes,
     jobRes,
     buyerAgentRes,
+    repoAnalysesRes,
+    crossRefRes,
   ] = await Promise.all([
     admin.from('candidate_profiles').select('*, profiles(full_name)').eq('user_id', candidateId).single(),
     admin.from('github_profiles').select('technical_fingerprint').eq('user_id', candidateId).single(),
@@ -101,6 +174,14 @@ export async function POST(request: NextRequest) {
     buyerAgentId
       ? admin.from('buyer_agents').select('*, company_profiles(*)').eq('id', buyerAgentId).single()
       : Promise.resolve({ data: null }),
+    admin.from('repo_analyses')
+      .select('repo_name, repo_url, claude_analysis, languages_breakdown, last_pushed_at, stars, is_fork')
+      .eq('user_id', candidateId)
+      .eq('analysis_status', 'complete'),
+    admin.from('profile_cross_references')
+      .select('consistency_score, consistency_rating, cross_reference_summary, corroboration_highlights, consistency_flags, red_flags')
+      .eq('user_id', candidateId)
+      .single(),
   ])
 
   const candidateProfile = candidateRes.data
@@ -112,13 +193,15 @@ export async function POST(request: NextRequest) {
     job_description: jobPosting?.raw_description,
   }
   const companyProfile = (buyerAgentRes.data as any)?.company_profiles || null
+  const repoAnalyses = repoAnalysesRes.data || []
+  const crossReference = crossRefRes.data || null
 
   if (!candidateProfile || !jobPosting) {
     return NextResponse.json({ error: 'Candidate or job posting not found' }, { status: 404 })
   }
 
   const buyerSystemPrompt = buildBuyerAgentSystemPrompt(buyerAgent, companyProfile)
-  const candidateSystemPrompt = buildCandidateAgentSystemPrompt(candidateProfile, githubFingerprint)
+  const candidateSystemPrompt = buildCandidateAgentPromptWithGitHub(candidateProfile, githubFingerprint, repoAnalyses, crossReference)
 
   // TURN 1: Buyer agent generates top qualification questions
   const t1 = await anthropic.messages.create({
